@@ -33,14 +33,41 @@ model Project {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TASK - Unidad de trabajo
-// Solo mantiene datos de la tarea, NO lógica de scheduler
+// TASK - Unidad de trabajo / Compromiso de agenda
+// Tipos: task, call, email, video, meeting, trip
 // ═══════════════════════════════════════════════════════════════════════════
 model Task {
   id          String    @id @default(uuid())
   title       String
   notes       String?
   
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIPO DE COMPROMISO
+  // ═══════════════════════════════════════════════════════════════════════════
+  type        String    @default("task") // task | call | email | video | meeting | trip
+  status      String    @default("pending") // pending | in_progress | done | waiting | sent
+  
+  // Datos específicos por tipo (JSON)
+  // call: { contactName, company, reason, estimatedDuration }
+  // email: { subject, recipient }
+  // video: { platform, meetingUrl, participants[], agenda[] }
+  // meeting: { participants[], agenda[], transportMode, travelTimeMinutes, returnTravelTimeMinutes }
+  // trip: { destination, hotel, objective, transportMode }
+  typeData    String?
+  
+  // Fecha/hora fin (para eventos con duración: video, meeting, trip)
+  endDate     DateTime?
+  
+  // Ubicación (para meeting y trip)
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+  
+  // Evento padre (para sub-reuniones dentro de un viaje)
+  parentEventId String?
+  parentEvent   Task?   @relation("SubEvents", fields: [parentEventId], references: [id])
+  subEvents     Task[]  @relation("SubEvents")
+  
+  // ═══════════════════════════════════════════════════════════════════════════
   // Organización
   projectId   String?
   project     Project?  @relation(fields: [projectId], references: [id])
@@ -57,6 +84,10 @@ model Task {
   recurrenceRule  String?   // RRULE: "FREQ=DAILY", "FREQ=WEEKLY;BYDAY=MO,WE,FR"
   recurrenceEnd   DateTime? // Fecha fin de recurrencia (null = infinito)
   parentTaskId    String?   // Si es instancia de tarea recurrente
+  
+  // Asignación a compañero
+  assignedToId    String?
+  assignedTo      Contact?  @relation(fields: [assignedToId], references: [id])
   
   // Subtareas (Fase 4) - JSON array
   subtasks        String?   // [{"id":"1","title":"..","done":false}]
@@ -79,6 +110,7 @@ model Task {
   // Relations
   reminders   Reminder[]
   events      TaskEvent[]
+  attachments Attachment[]
   
   @@index([dueDate])
   @@index([completedAt])
@@ -86,6 +118,63 @@ model Task {
   @@index([isWaitingFor])
   @@index([isRecurring])
   @@index([parentTaskId])
+  @@index([assignedToId])
+  @@index([type])
+  @@index([status])
+  @@index([parentEventId])
+  @@index([locationId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCATION - Ubicaciones para reuniones y viajes
+// ═══════════════════════════════════════════════════════════════════════════
+model Location {
+  id          String    @id @default(uuid())
+  name        String              // "Oficina Madrid", "Hotel Hilton"
+  address     String?             // Dirección completa
+  city        String?             // Ciudad
+  province    String?             // Provincia
+  country     String?             // País
+  postalCode  String?
+  
+  // Coordenadas (para futuro cálculo de rutas)
+  latitude    Float?
+  longitude   Float?
+  
+  // Sync fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deviceId    String
+  
+  tasks       Task[]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ATTACHMENT - Archivos, URLs y emails adjuntos a tareas
+// ═══════════════════════════════════════════════════════════════════════════
+model Attachment {
+  id          String    @id @default(uuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  type        String    // 'file' | 'url' | 'email'
+  name        String    // Nombre descriptivo
+  
+  // Para archivos
+  filePath    String?   // Ruta relativa en carpeta attachments
+  mimeType    String?   // application/pdf, image/png, etc
+  size        Int?      // Tamaño en bytes
+  
+  // Para URLs y emails
+  url         String?   // URL web o message:// para emails
+  
+  // Metadata adicional (JSON)
+  metadata    String?   // { from, subject, date } para emails
+  
+  createdAt   DateTime  @default(now())
+  deviceId    String
+  
+  @@index([taskId])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -99,6 +188,23 @@ model Tag {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deviceId    String
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTACT - Compañeros/Equipo para asignar tareas
+// ═══════════════════════════════════════════════════════════════════════════
+model Contact {
+  id          String    @id @default(uuid())
+  name        String
+  email       String?
+  color       String    @default("#3B82F6")
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deviceId    String
+  
+  tasks       Task[]
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -116,6 +222,10 @@ model Reminder {
   
   // Relativo (opcional): minutos antes de dueDate
   relativeMinutes     Int?              // -30 = 30 min antes, null = absoluto
+  
+  // Antelación en minutos (para recordatorios con anticipación)
+  advanceMinutes      Int?              // 60 = 1h antes, 1440 = 1 día antes, 10080 = 1 semana antes
+  advanceLabel        String?           // Etiqueta descriptiva: "1 semana antes", "2 horas antes"
   
   // ⭐ SCHEDULER STATE (crítico para anti-duplicados)
   lastNotifiedAt      DateTime?         // Última vez que se envió notificación

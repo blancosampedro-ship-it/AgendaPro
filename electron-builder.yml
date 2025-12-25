@@ -15,6 +15,7 @@ asar: false
 # Archivos a incluir en el build
 files:
   - dist-electron/**/*
+  - electron/splash.html
   - out/**/*
   - package.json
   - ".env"

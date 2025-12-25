@@ -63,6 +63,8 @@ export async function syncAll(): Promise<SyncResult> {
     // Sincronizar en orden de dependencias
     await syncProjects(result);
     await syncTags(result);
+    await syncContacts(result);  // Contacts antes de tasks por la relación
+    await syncLocations(result); // Locations antes de tasks (reuniones y viajes las usan)
     await syncTasks(result);
     
     // Actualizar timestamp de última sincronización
@@ -221,6 +223,184 @@ async function syncTags(result: SyncResult): Promise<void> {
 }
 
 /**
+ * Sincroniza contactos/equipo
+ */
+async function syncContacts(result: SyncResult): Promise<void> {
+  const firestore = getFirestoreDb();
+  const user = getCurrentUser();
+  if (!firestore || !user) return;
+
+  const localDb = getDatabase();
+  const deviceId = getDeviceId();
+  const collectionRef = collection(firestore, 'users', user.uid, 'contacts');
+
+  // Obtener contactos locales
+  const localContacts = await localDb.contact.findMany({
+    where: { deletedAt: null },
+  });
+
+  // Obtener contactos remotos
+  const remoteSnapshot = await getDocs(collectionRef);
+  const remoteContacts = new Map<string, any>();
+  remoteSnapshot.forEach(doc => {
+    remoteContacts.set(doc.id, { id: doc.id, ...doc.data() });
+  });
+
+  // Push: local -> remote
+  for (const local of localContacts) {
+    const remote = remoteContacts.get(local.id);
+    
+    if (!remote || local.updatedAt > (remote.updatedAt?.toDate() || new Date(0))) {
+      await setDoc(doc(collectionRef, local.id), {
+        name: local.name,
+        email: local.email,
+        color: local.color,
+        createdAt: Timestamp.fromDate(local.createdAt),
+        updatedAt: serverTimestamp(),
+        deviceId: local.deviceId,
+      });
+      result.pushed++;
+      logger.debug(`Contact pushed: ${local.name}`);
+    }
+  }
+
+  // Pull: remote -> local
+  for (const [id, remote] of remoteContacts) {
+    const local = localContacts.find(c => c.id === id);
+    
+    if (!local) {
+      // Crear local si no existe
+      try {
+        await localDb.contact.create({
+          data: {
+            id: remote.id,
+            name: remote.name,
+            email: remote.email || null,
+            color: remote.color || '#3B82F6',
+            createdAt: remote.createdAt?.toDate() || new Date(),
+            updatedAt: remote.updatedAt?.toDate() || new Date(),
+            deviceId: remote.deviceId || deviceId,
+          },
+        });
+        result.pulled++;
+        logger.debug(`Contact pulled: ${remote.name}`);
+      } catch (error) {
+        logger.error(`Error pulling contact ${remote.name}:`, error);
+      }
+    } else if (remote.updatedAt?.toDate() > local.updatedAt) {
+      // Actualizar local si remoto es más nuevo
+      await localDb.contact.update({
+        where: { id },
+        data: {
+          name: remote.name,
+          email: remote.email || null,
+          color: remote.color || '#3B82F6',
+          updatedAt: remote.updatedAt?.toDate() || new Date(),
+        },
+      });
+      result.pulled++;
+      logger.debug(`Contact updated from remote: ${remote.name}`);
+    }
+  }
+  
+  logger.info(`Contacts sync: ${localContacts.length} local, ${remoteContacts.size} remote`);
+}
+
+/**
+ * Sincroniza ubicaciones (para reuniones y viajes)
+ */
+async function syncLocations(result: SyncResult): Promise<void> {
+  const firestore = getFirestoreDb();
+  const user = getCurrentUser();
+  if (!firestore || !user) return;
+
+  const localDb = getDatabase();
+  const deviceId = getDeviceId();
+  const collectionRef = collection(firestore, 'users', user.uid, 'locations');
+
+  // Obtener ubicaciones locales
+  const localLocations = await localDb.location.findMany();
+
+  // Obtener ubicaciones remotas
+  const remoteSnapshot = await getDocs(collectionRef);
+  const remoteLocations = new Map<string, any>();
+  remoteSnapshot.forEach(doc => {
+    remoteLocations.set(doc.id, { id: doc.id, ...doc.data() });
+  });
+
+  // Push: local -> remote
+  for (const local of localLocations) {
+    const remote = remoteLocations.get(local.id);
+    
+    if (!remote || local.updatedAt > (remote.updatedAt?.toDate() || new Date(0))) {
+      await setDoc(doc(collectionRef, local.id), {
+        name: local.name,
+        address: local.address,
+        city: local.city,
+        province: local.province,
+        country: local.country,
+        latitude: local.latitude,
+        longitude: local.longitude,
+        createdAt: Timestamp.fromDate(local.createdAt),
+        updatedAt: serverTimestamp(),
+        deviceId: deviceId,
+      });
+      result.pushed++;
+      logger.debug(`Location pushed: ${local.name}`);
+    }
+  }
+
+  // Pull: remote -> local
+  for (const [id, remote] of remoteLocations) {
+    const local = localLocations.find(l => l.id === id);
+    
+    if (!local) {
+      // Crear local si no existe
+      try {
+        await localDb.location.create({
+          data: {
+            id: remote.id,
+            name: remote.name,
+            address: remote.address || null,
+            city: remote.city || null,
+            province: remote.province || null,
+            country: remote.country || null,
+            latitude: remote.latitude || null,
+            longitude: remote.longitude || null,
+            createdAt: remote.createdAt?.toDate() || new Date(),
+            updatedAt: remote.updatedAt?.toDate() || new Date(),
+            deviceId: remote.deviceId || deviceId,
+          },
+        });
+        result.pulled++;
+        logger.debug(`Location pulled: ${remote.name}`);
+      } catch (error) {
+        logger.error(`Error pulling location ${remote.name}:`, error);
+      }
+    } else if (remote.updatedAt?.toDate() > local.updatedAt) {
+      // Actualizar local si remoto es más nuevo
+      await localDb.location.update({
+        where: { id },
+        data: {
+          name: remote.name,
+          address: remote.address || null,
+          city: remote.city || null,
+          province: remote.province || null,
+          country: remote.country || null,
+          latitude: remote.latitude || null,
+          longitude: remote.longitude || null,
+          updatedAt: remote.updatedAt?.toDate() || new Date(),
+        },
+      });
+      result.pulled++;
+      logger.debug(`Location updated from remote: ${remote.name}`);
+    }
+  }
+  
+  logger.info(`Locations sync: ${localLocations.length} local, ${remoteLocations.size} remote`);
+}
+
+/**
  * Sincroniza tareas
  */
 async function syncTasks(result: SyncResult): Promise<void> {
@@ -271,6 +451,14 @@ async function syncTasks(result: SyncResult): Promise<void> {
         updatedAt: serverTimestamp(),
         syncVersion: local.syncVersion,
         deviceId: local.deviceId,
+        // Commitment types (Fase 7)
+        type: local.type || 'task',
+        status: local.status || 'pending',
+        typeData: local.typeData,
+        endDate: local.endDate ? Timestamp.fromDate(local.endDate) : null,
+        locationId: local.locationId,
+        parentEventId: local.parentEventId,
+        assignedToId: local.assignedToId,
       });
       result.pushed++;
     }
@@ -305,6 +493,14 @@ async function syncTasks(result: SyncResult): Promise<void> {
           createdAt: remote.createdAt?.toDate() || new Date(),
           syncVersion: remote.syncVersion || 0,
           deviceId: remote.deviceId || deviceId,
+          // Commitment types (Fase 7)
+          type: remote.type || 'task',
+          status: remote.status || 'pending',
+          typeData: remote.typeData || null,
+          endDate: remote.endDate?.toDate() || null,
+          locationId: remote.locationId || null,
+          parentEventId: remote.parentEventId || null,
+          assignedToId: remote.assignedToId || null,
         },
       });
       result.pulled++;
@@ -328,6 +524,14 @@ async function syncTasks(result: SyncResult): Promise<void> {
           completedAt: remote.completedAt?.toDate(),
           deletedAt: remote.deletedAt?.toDate(),
           syncVersion: remote.syncVersion,
+          // Commitment types (Fase 7)
+          type: remote.type || 'task',
+          status: remote.status || 'pending',
+          typeData: remote.typeData || null,
+          endDate: remote.endDate?.toDate() || null,
+          locationId: remote.locationId || null,
+          parentEventId: remote.parentEventId || null,
+          assignedToId: remote.assignedToId || null,
         },
       });
       result.pulled++;
@@ -346,6 +550,13 @@ async function syncTasks(result: SyncResult): Promise<void> {
             title: remote.title,
             notes: remote.notes,
             syncVersion: { increment: 1 },
+            // Commitment types (Fase 7)
+            type: remote.type || 'task',
+            status: remote.status || 'pending',
+            typeData: remote.typeData || null,
+            endDate: remote.endDate?.toDate() || null,
+            locationId: remote.locationId || null,
+            parentEventId: remote.parentEventId || null,
           },
         });
       }

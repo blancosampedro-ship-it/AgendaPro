@@ -6,6 +6,7 @@
 import { getDatabase } from '../database/connection';
 import { getDeviceId } from '../utils/deviceId';
 import { logger } from '../utils/logger';
+import { REMINDER_OPTIONS, DEFAULT_REMINDERS, type CommitmentType } from './commitmentService';
 
 // Ventana de tolerancia para anti-duplicados: 2 minutos
 const DUPLICATE_TOLERANCE_MS = 2 * 60 * 1000;
@@ -15,6 +16,13 @@ export interface CreateReminderInput {
   fireAt: Date;
   type?: 'due' | 'reminder' | 'followup';
   relativeMinutes?: number;
+  advanceMinutes?: number;
+  advanceLabel?: string;
+}
+
+export interface ReminderWithAdvance {
+  advanceMinutes: number;
+  advanceLabel: string;
 }
 
 export interface SnoozeOption {
@@ -37,6 +45,8 @@ export async function createReminder(input: CreateReminderInput) {
       fireAt: input.fireAt,
       type: input.type ?? 'reminder',
       relativeMinutes: input.relativeMinutes,
+      advanceMinutes: input.advanceMinutes,
+      advanceLabel: input.advanceLabel,
       deviceId,
     },
   });
@@ -51,6 +61,203 @@ export async function createReminder(input: CreateReminderInput) {
   
   logger.info(`Reminder created: ${reminder.id} for task ${input.taskId}`);
   return reminder;
+}
+
+/**
+ * Calcula la fecha de disparo del recordatorio basado en la fecha del evento y la antelación
+ */
+export function calculateFireAt(eventDate: Date, advanceMinutes: number): Date {
+  return new Date(eventDate.getTime() - advanceMinutes * 60 * 1000);
+}
+
+/**
+ * Obtiene la etiqueta para una antelación en minutos
+ */
+export function getAdvanceLabel(advanceMinutes: number): string {
+  const option = REMINDER_OPTIONS.find(opt => opt.advanceMinutes === advanceMinutes);
+  return option?.label ?? `${advanceMinutes} minutos antes`;
+}
+
+/**
+ * Crea múltiples reminders para una tarea con antelaciones específicas
+ */
+export async function createRemindersForTask(
+  taskId: string,
+  eventDate: Date,
+  advanceMinutesList: number[]
+) {
+  const db = getDatabase();
+  const deviceId = getDeviceId();
+  const reminders = [];
+  
+  for (const advanceMinutes of advanceMinutesList) {
+    const fireAt = calculateFireAt(eventDate, advanceMinutes);
+    const advanceLabel = getAdvanceLabel(advanceMinutes);
+    
+    // Solo crear si la fecha de disparo es futura o es el evento mismo
+    if (fireAt >= new Date() || advanceMinutes === 0) {
+      const reminder = await db.reminder.create({
+        data: {
+          taskId,
+          fireAt,
+          type: advanceMinutes === 0 ? 'due' : 'reminder',
+          advanceMinutes,
+          advanceLabel,
+          deviceId,
+        },
+      });
+      
+      // Agregar a la cola de notificaciones
+      await db.nextNotification.create({
+        data: {
+          reminderId: reminder.id,
+          nextFireAt: fireAt,
+        },
+      });
+      
+      reminders.push(reminder);
+      logger.info(`Reminder created: ${reminder.id} (${advanceLabel}) for task ${taskId}`);
+    }
+  }
+  
+  return reminders;
+}
+
+/**
+ * Crea reminders por defecto según el tipo de compromiso
+ */
+export async function createDefaultRemindersForTask(
+  taskId: string,
+  eventDate: Date,
+  commitmentType: CommitmentType
+) {
+  const defaultAdvances = DEFAULT_REMINDERS[commitmentType] || DEFAULT_REMINDERS.task;
+  return createRemindersForTask(taskId, eventDate, defaultAdvances);
+}
+
+/**
+ * Actualiza los reminders de una tarea
+ * - Elimina los reminders existentes que no están en la nueva lista
+ * - Crea los nuevos reminders que no existían
+ * - Actualiza los reminders existentes si cambió la fecha del evento
+ */
+export async function updateRemindersForTask(
+  taskId: string,
+  eventDate: Date,
+  newAdvanceMinutesList: number[]
+) {
+  const db = getDatabase();
+  const deviceId = getDeviceId();
+  
+  // Obtener reminders actuales
+  const existingReminders = await db.reminder.findMany({
+    where: { taskId, deletedAt: null, dismissed: false },
+  });
+  
+  const existingAdvances = new Set(
+    existingReminders
+      .filter(r => r.advanceMinutes !== null)
+      .map(r => r.advanceMinutes!)
+  );
+  const newAdvances = new Set(newAdvanceMinutesList);
+  
+  // Reminders a eliminar
+  const toDelete = existingReminders.filter(
+    r => r.advanceMinutes !== null && !newAdvances.has(r.advanceMinutes!)
+  );
+  
+  // Antelaciones a crear
+  const toCreate = newAdvanceMinutesList.filter(adv => !existingAdvances.has(adv));
+  
+  // Reminders a actualizar (si cambió la fecha del evento)
+  const toUpdate = existingReminders.filter(
+    r => r.advanceMinutes !== null && newAdvances.has(r.advanceMinutes!)
+  );
+  
+  // Eliminar reminders obsoletos
+  for (const reminder of toDelete) {
+    await db.nextNotification.delete({ where: { reminderId: reminder.id } }).catch(() => {});
+    await db.reminder.update({
+      where: { id: reminder.id },
+      data: { deletedAt: new Date(), syncVersion: { increment: 1 } },
+    });
+    logger.info(`Reminder deleted: ${reminder.id}`);
+  }
+  
+  // Crear nuevos reminders
+  for (const advanceMinutes of toCreate) {
+    const fireAt = calculateFireAt(eventDate, advanceMinutes);
+    const advanceLabel = getAdvanceLabel(advanceMinutes);
+    
+    const reminder = await db.reminder.create({
+      data: {
+        taskId,
+        fireAt,
+        type: advanceMinutes === 0 ? 'due' : 'reminder',
+        advanceMinutes,
+        advanceLabel,
+        deviceId,
+      },
+    });
+    
+    await db.nextNotification.create({
+      data: { reminderId: reminder.id, nextFireAt: fireAt },
+    });
+    
+    logger.info(`Reminder created: ${reminder.id} (${advanceLabel})`);
+  }
+  
+  // Actualizar fechas de reminders existentes
+  for (const reminder of toUpdate) {
+    const newFireAt = calculateFireAt(eventDate, reminder.advanceMinutes!);
+    
+    if (reminder.fireAt.getTime() !== newFireAt.getTime()) {
+      await db.reminder.update({
+        where: { id: reminder.id },
+        data: {
+          fireAt: newFireAt,
+          firedAt: null, // Reset para que pueda volver a disparar
+          lastNotifiedAt: null,
+          syncVersion: { increment: 1 },
+        },
+      });
+      
+      await db.nextNotification.upsert({
+        where: { reminderId: reminder.id },
+        create: { reminderId: reminder.id, nextFireAt: newFireAt },
+        update: { nextFireAt: newFireAt, lockedUntil: null },
+      });
+      
+      logger.info(`Reminder updated: ${reminder.id} new fireAt: ${newFireAt}`);
+    }
+  }
+  
+  // Retornar todos los reminders actuales
+  return db.reminder.findMany({
+    where: { taskId, deletedAt: null, dismissed: false },
+    orderBy: { fireAt: 'asc' },
+  });
+}
+
+/**
+ * Elimina todos los reminders de una tarea
+ */
+export async function deleteAllRemindersForTask(taskId: string) {
+  const db = getDatabase();
+  
+  const reminders = await db.reminder.findMany({
+    where: { taskId, deletedAt: null },
+  });
+  
+  for (const reminder of reminders) {
+    await db.nextNotification.delete({ where: { reminderId: reminder.id } }).catch(() => {});
+    await db.reminder.update({
+      where: { id: reminder.id },
+      data: { deletedAt: new Date(), syncVersion: { increment: 1 } },
+    });
+  }
+  
+  logger.info(`All reminders deleted for task ${taskId}`);
 }
 
 /**

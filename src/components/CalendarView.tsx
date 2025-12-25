@@ -25,13 +25,30 @@ interface CalendarViewProps {
   onTaskClick?: (task: Task) => void;
   onDateClick?: (date: Date) => void;
   onClose?: () => void;
+  onTaskComplete?: (taskId: string) => void;
 }
 
-export default function CalendarView({ onTaskClick, onDateClick, onClose }: CalendarViewProps) {
+export default function CalendarView({ onTaskClick, onDateClick, onClose, onTaskComplete }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Completar tarea
+  const handleCompleteTask = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const api = (window as any).electronAPI;
+      if (!api) return;
+      await api.completeTask(taskId);
+      // Remover de la lista local
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      // Notificar al padre si hay callback
+      onTaskComplete?.(taskId);
+    } catch (error) {
+      console.error('Error completing task:', error);
+    }
+  };
 
   // Cargar todas las tareas
   const fetchTasks = useCallback(async () => {
@@ -131,6 +148,36 @@ export default function CalendarView({ onTaskClick, onDateClick, onClose }: Cale
     return compareDate < today;
   };
 
+  // Calcular nivel de carga del día
+  const getDayLoadLevel = (taskCount: number): 'empty' | 'light' | 'moderate' | 'heavy' => {
+    if (taskCount === 0) return 'empty';
+    if (taskCount >= 5) return 'heavy';
+    if (taskCount >= 3) return 'moderate';
+    return 'light';
+  };
+
+  // Colores de indicador de carga
+  const getDayLoadIndicator = (taskCount: number): string => {
+    const level = getDayLoadLevel(taskCount);
+    switch (level) {
+      case 'heavy': return 'bg-red-500';
+      case 'moderate': return 'bg-amber-500';
+      case 'light': return 'bg-green-500';
+      default: return '';
+    }
+  };
+
+  // Borde del día según carga
+  const getDayLoadBorder = (taskCount: number): string => {
+    const level = getDayLoadLevel(taskCount);
+    switch (level) {
+      case 'heavy': return 'border-red-400 dark:border-red-500';
+      case 'moderate': return 'border-amber-400 dark:border-amber-500';
+      case 'light': return 'border-green-400 dark:border-green-500';
+      default: return 'border-gray-200 dark:border-gray-700';
+    }
+  };
+
   // Navegación
   const goToPrevious = () => {
     const newDate = new Date(currentDate);
@@ -218,6 +265,22 @@ export default function CalendarView({ onTaskClick, onDateClick, onClose }: Cale
                 Semana
               </button>
             </div>
+
+            {/* Leyenda de carga */}
+            <div className="hidden sm:flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 ml-2">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                1-2
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                3-4
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                5+
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -280,6 +343,9 @@ export default function CalendarView({ onTaskClick, onDateClick, onClose }: Cale
                   const dayTasks = getTasksForDate(day);
                   const isOtherMonth = !isCurrentMonth(day);
                   const past = isPastDate(day) && !isToday(day);
+                  const loadLevel = getDayLoadLevel(dayTasks.length);
+                  const loadIndicator = getDayLoadIndicator(dayTasks.length);
+                  const loadBorder = !isToday(day) && dayTasks.length > 0 ? getDayLoadBorder(dayTasks.length) : '';
                   
                   return (
                     <div
@@ -287,20 +353,36 @@ export default function CalendarView({ onTaskClick, onDateClick, onClose }: Cale
                       onClick={() => onDateClick?.(day)}
                       className={`
                         ${viewMode === 'month' ? 'min-h-[100px]' : 'h-full'}
-                        p-2 border border-gray-200 dark:border-gray-700 rounded-lg
-                        ${isToday(day) ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}
+                        p-2 border-2 rounded-lg relative
+                        ${isToday(day) ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-500' : loadBorder || 'border-gray-200 dark:border-gray-700'}
                         ${isOtherMonth ? 'bg-gray-50 dark:bg-gray-800/50' : 'bg-white dark:bg-gray-800'}
                         ${past ? 'opacity-60' : ''}
                         hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors
                       `}
                     >
+                      {/* Indicador de carga en esquina */}
+                      {loadIndicator && !past && (
+                        <div className={`absolute top-1 right-1 w-2.5 h-2.5 rounded-full ${loadIndicator}`} 
+                             title={`${dayTasks.length} tareas - ${loadLevel === 'heavy' ? 'Muy cargado' : loadLevel === 'moderate' ? 'Moderado' : 'Ligero'}`}
+                        />
+                      )}
+                      
                       {/* Day number */}
                       <div className={`
-                        text-sm font-medium mb-1
+                        text-sm font-medium mb-1 flex items-center gap-1
                         ${isToday(day) ? 'text-blue-600 dark:text-blue-400' : ''}
                         ${isOtherMonth ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'}
                       `}>
                         {day.getDate()}
+                        {dayTasks.length > 0 && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                            loadLevel === 'heavy' ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300' :
+                            loadLevel === 'moderate' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' :
+                            'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300'
+                          }`}>
+                            {dayTasks.length}
+                          </span>
+                        )}
                       </div>
                       
                       {/* Tasks */}
@@ -313,15 +395,23 @@ export default function CalendarView({ onTaskClick, onDateClick, onClose }: Cale
                               onTaskClick?.(task);
                             }}
                             className={`
-                              text-xs p-1 rounded truncate cursor-pointer
+                              text-xs p-1 rounded cursor-pointer flex items-center gap-1
                               ${task.project?.color ? '' : 'bg-gray-100 dark:bg-gray-700'}
-                              hover:opacity-80 transition-opacity
+                              hover:opacity-80 transition-opacity group
                             `}
                             style={task.project?.color ? { backgroundColor: task.project.color + '30' } : {}}
                             title={task.title}
                           >
-                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${getPriorityColor(task.priority)}`}></span>
-                            {task.title}
+                            {/* Checkbox para completar */}
+                            <button
+                              onClick={(e) => handleCompleteTask(task.id, e)}
+                              className="flex-shrink-0 w-3.5 h-3.5 rounded-full border border-gray-400 dark:border-gray-500 hover:border-green-500 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors flex items-center justify-center"
+                              title="Marcar como completada"
+                            >
+                              <span className="opacity-0 group-hover:opacity-100 text-green-500 text-[8px]">✓</span>
+                            </button>
+                            <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${getPriorityColor(task.priority)}`}></span>
+                            <span className="truncate">{task.title}</span>
                           </div>
                         ))}
                         {dayTasks.length > (viewMode === 'month' ? 3 : 10) && (

@@ -26,6 +26,10 @@ export const IPC_CHANNELS = {
   REMINDER_CREATE: 'reminder:create',
   REMINDER_SNOOZE: 'reminder:snooze',
   REMINDER_DISMISS: 'reminder:dismiss',
+  REMINDER_GET_FOR_TASK: 'reminder:get-for-task',
+  REMINDER_UPDATE_FOR_TASK: 'reminder:update-for-task',
+  REMINDER_GET_OPTIONS: 'reminder:get-options',
+  REMINDER_GET_DEFAULTS: 'reminder:get-defaults',
   
   // Notifications
   NOTIFICATION_CLICKED: 'notification:clicked',

@@ -42,6 +42,15 @@ export interface CreateTaskInput {
   recurrenceEnd?: Date | string;
   // Fase 4: Subtareas
   subtasks?: Subtask[];
+  // Asignación a contacto
+  assignedToId?: string;
+  // Fase 7: Commitment types
+  type?: string;
+  status?: string;
+  typeData?: string;
+  endDate?: Date | string;
+  locationId?: string;
+  parentEventId?: string;
 }
 
 export interface UpdateTaskInput {
@@ -62,10 +71,20 @@ export interface UpdateTaskInput {
   recurrenceEnd?: Date | string | null;
   // Fase 4: Subtareas
   subtasks?: Subtask[] | null;
+  // Asignación a contacto
+  assignedToId?: string | null;
+  // Fase 7: Commitment types
+  type?: string;
+  status?: string;
+  typeData?: string | null;
+  endDate?: Date | string | null;
+  locationId?: string | null;
+  parentEventId?: string | null;
 }
 
 /**
  * Obtiene todas las tareas no eliminadas
+ * Excluye sub-eventos (tareas con parentEventId) para mostrar solo en su viaje padre
  */
 export async function getAllTasks() {
   const db = getDatabase();
@@ -73,11 +92,16 @@ export async function getAllTasks() {
   const tasks = await db.task.findMany({
     where: {
       deletedAt: null,
+      parentEventId: null, // Excluir sub-eventos
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: {
         where: { deletedAt: null },
+      },
+      _count: {
+        select: { subEvents: true },
       },
     },
     orderBy: [
@@ -105,6 +129,7 @@ export async function getTodayTasks() {
     where: {
       deletedAt: null,
       completedAt: null,
+      parentEventId: null, // Excluir sub-eventos
       dueDate: {
         gte: today,
         lt: tomorrow,
@@ -112,7 +137,11 @@ export async function getTodayTasks() {
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: { dueDate: 'asc' },
   });
@@ -129,40 +158,58 @@ export async function getOverdueTasks() {
     where: {
       deletedAt: null,
       completedAt: null,
+      parentEventId: null, // Excluir sub-eventos
       dueDate: {
         lt: now,
       },
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: { dueDate: 'asc' },
   });
 }
 
 /**
- * Obtiene tareas de los próximos 7 días
+ * Obtiene tareas próximas dentro de un rango de días
+ * @param days - Número de días hacia el futuro (default: 30, 9999 = todas)
  */
-export async function getUpcomingTasks() {
+export async function getUpcomingTasks(days: number = 30) {
   const db = getDatabase();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const nextWeek = new Date(today);
-  nextWeek.setDate(nextWeek.getDate() + 7);
+  
+  // Si es 9999 o más, traer todas las tareas futuras
+  const whereClause: any = {
+    deletedAt: null,
+    completedAt: null,
+    parentEventId: null, // Excluir sub-eventos
+    dueDate: {
+      gte: today,
+    },
+  };
+  
+  // Añadir límite superior solo si no es "todas"
+  if (days < 9999) {
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + days);
+    whereClause.dueDate.lte = endDate;
+  }
   
   return db.task.findMany({
-    where: {
-      deletedAt: null,
-      completedAt: null,
-      dueDate: {
-        gte: today,
-        lte: nextWeek,
-      },
-    },
+    where: whereClause,
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: { dueDate: 'asc' },
   });
@@ -178,11 +225,16 @@ export async function getWaitingTasks() {
     where: {
       deletedAt: null,
       completedAt: null,
+      parentEventId: null, // Excluir sub-eventos
       isWaitingFor: true,
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: { followUpDate: 'asc' },
   });
@@ -198,6 +250,7 @@ export async function getTaskById(id: string) {
     where: { id },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
     },
   });
@@ -213,6 +266,7 @@ export async function createTask(input: CreateTaskInput) {
   // Convertir fechas
   const dueDate = toDate(input.dueDate);
   const recurrenceEnd = toDate(input.recurrenceEnd);
+  const endDate = toDate(input.endDate);
   
   const task = await db.task.create({
     data: {
@@ -231,10 +285,20 @@ export async function createTask(input: CreateTaskInput) {
       recurrenceEnd,
       // Fase 4: Subtareas
       subtasks: input.subtasks ? JSON.stringify(input.subtasks) : null,
+      // Asignación
+      assignedToId: input.assignedToId || null,
+      // Fase 7: Commitment types
+      type: input.type || 'task',
+      status: input.status || 'pending',
+      typeData: input.typeData || null,
+      endDate: endDate || null,
+      locationId: input.locationId || null,
+      parentEventId: input.parentEventId || null,
       deviceId,
     },
     include: {
       project: true,
+      assignedTo: true,
     },
   });
   
@@ -259,6 +323,7 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
   const dueDate = input.dueDate !== undefined ? toDate(input.dueDate) : undefined;
   const followUpDate = input.followUpDate !== undefined ? toDate(input.followUpDate) : undefined;
   const recurrenceEnd = input.recurrenceEnd !== undefined ? toDate(input.recurrenceEnd) : undefined;
+  const endDate = input.endDate !== undefined ? toDate(input.endDate) : undefined;
   
   // Preparar datos para actualizar
   const updateData: any = {
@@ -274,6 +339,15 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     isRecurring: input.isRecurring,
     recurrenceRule: input.recurrenceRule,
     recurrenceEnd,
+    // Asignación
+    assignedToId: input.assignedToId,
+    // Fase 7: Commitment types
+    type: input.type,
+    status: input.status,
+    typeData: input.typeData,
+    endDate,
+    locationId: input.locationId,
+    parentEventId: input.parentEventId,
     syncVersion: { increment: 1 },
   };
   
@@ -292,6 +366,7 @@ export async function updateTask(id: string, input: UpdateTaskInput) {
     data: updateData,
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
     },
   });
@@ -587,6 +662,7 @@ export async function completeRecurringTask(id: string) {
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
     },
   });
@@ -657,6 +733,7 @@ export async function updateSubtask(taskId: string, subtaskId: string, done: boo
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
     },
   });
@@ -719,6 +796,7 @@ export async function getTasksByTag(tagName: string) {
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
     },
     orderBy: [
@@ -748,6 +826,7 @@ export async function searchTasks(query: string) {
   const tasks = await db.task.findMany({
     where: {
       deletedAt: null,
+      parentEventId: null, // Excluir sub-eventos (se buscan en su viaje padre)
       OR: [
         { title: { contains: searchTerm } },
         { notes: { contains: searchTerm } },
@@ -756,7 +835,11 @@ export async function searchTasks(query: string) {
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: [
       { completedAt: 'asc' },
@@ -777,11 +860,16 @@ export async function getTasksByProject(projectId: string | null) {
   return db.task.findMany({
     where: {
       deletedAt: null,
+      parentEventId: null, // Excluir sub-eventos
       projectId: projectId,
     },
     include: {
       project: true,
+      assignedTo: true,
       reminders: { where: { deletedAt: null } },
+      _count: {
+        select: { subEvents: true },
+      },
     },
     orderBy: [
       { completedAt: 'asc' },
@@ -914,4 +1002,99 @@ export async function deleteProject(id: string) {
   
   logger.info(`Project deleted: ${project.id}`);
   return project;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTACTOS / EQUIPO
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Obtiene todos los contactos
+ */
+export async function getAllContacts() {
+  const db = getDatabase();
+  
+  const contacts = await db.contact.findMany({
+    where: {
+      deletedAt: null,
+    },
+    include: {
+      _count: {
+        select: {
+          tasks: {
+            where: {
+              deletedAt: null,
+              completedAt: null,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+  
+  logger.debug(`Fetched ${contacts.length} contacts`);
+  return contacts;
+}
+
+/**
+ * Crea un nuevo contacto
+ */
+export async function createContact(input: { name: string; email?: string; color?: string }) {
+  const db = getDatabase();
+  const deviceId = getDeviceId();
+  
+  const contact = await db.contact.create({
+    data: {
+      name: input.name.trim(),
+      email: input.email?.trim() || null,
+      color: input.color || '#3B82F6',
+      deviceId,
+    },
+  });
+  
+  logger.info(`Contact created: ${contact.id} - ${contact.name}`);
+  return contact;
+}
+
+/**
+ * Actualiza un contacto
+ */
+export async function updateContact(id: string, input: { name?: string; email?: string; color?: string }) {
+  const db = getDatabase();
+  
+  const contact = await db.contact.update({
+    where: { id },
+    data: {
+      name: input.name?.trim(),
+      email: input.email?.trim() || null,
+      color: input.color,
+    },
+  });
+  
+  logger.info(`Contact updated: ${contact.id}`);
+  return contact;
+}
+
+/**
+ * Elimina un contacto (soft delete)
+ */
+export async function deleteContact(id: string) {
+  const db = getDatabase();
+  
+  // Desasociar tareas del contacto
+  await db.task.updateMany({
+    where: { assignedToId: id },
+    data: { assignedToId: null },
+  });
+  
+  const contact = await db.contact.update({
+    where: { id },
+    data: {
+      deletedAt: new Date(),
+    },
+  });
+  
+  logger.info(`Contact deleted: ${contact.id}`);
+  return contact;
 }

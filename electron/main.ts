@@ -13,6 +13,7 @@
 import { app, BrowserWindow } from 'electron';
 import * as path from 'path';
 import { createMainWindow, getMainWindow, showMainWindow, setForceQuit } from './windows/mainWindow';
+import { createSplashWindow, closeSplashWindow, updateSplashStatus } from './windows/splashWindow';
 import { createTray, destroyTray } from './tray/trayManager';
 import { createAppMenu } from './menu/appMenu';
 import { setupIpcHandlers } from './ipc/handlers';
@@ -61,8 +62,14 @@ app.whenReady().then(async () => {
 
   try {
     // ═══════════════════════════════════════════════════════════════════════
-    // FASE 1: Inicialización crítica en PARALELO (más rápido)
+    // FASE 0: Splash screen INMEDIATO (aparece en ~100ms)
     // ═══════════════════════════════════════════════════════════════════════
+    createSplashWindow();
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // FASE 1: Inicialización mínima en PARALELO
+    // ═══════════════════════════════════════════════════════════════════════
+    updateSplashStatus('Preparando...');
     
     // Configurar IPC y handlers ANTES de la base de datos (no dependen de ella)
     setupIpcHandlers();
@@ -73,14 +80,22 @@ app.whenReady().then(async () => {
     createAppMenu();
     createTray();
     
-    // Inicializar BD (único await crítico antes de la ventana)
+    // Inicializar BD
+    updateSplashStatus('Conectando base de datos...');
     await initDatabase();
     logger.debug('✓ Core initialized');
 
     // ═══════════════════════════════════════════════════════════════════════
-    // FASE 2: Crear ventana principal (lo más rápido posible)
+    // FASE 2: Crear ventana principal
     // ═══════════════════════════════════════════════════════════════════════
+    updateSplashStatus('Cargando interfaz...');
     const mainWindow = await createMainWindow(isDev ? DEV_SERVER_URL : null);
+    
+    // Cerrar splash después de un tiempo razonable
+    setTimeout(() => {
+      closeSplashWindow();
+      mainWindow.show();
+    }, 2000); // 2 segundos máximo para el splash
     
     // ═══════════════════════════════════════════════════════════════════════
     // FASE 3: Servicios secundarios en BACKGROUND (no bloquean UI)

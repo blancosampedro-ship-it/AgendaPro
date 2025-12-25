@@ -18,6 +18,9 @@ interface Task {
   waitingForNote: string | null;
   projectId: string | null;
   project: { id: string; name: string; color: string } | null;
+  // Asignación
+  assignedToId: string | null;
+  assignedTo: { id: string; name: string; email: string | null; color: string } | null;
   // Fase 4
   isRecurring: boolean;
   recurrenceRule: string | null;
@@ -28,6 +31,14 @@ interface Task {
     fireAt: string;
     snoozedUntil: string | null;
   }>;
+  // Fase 7: Commitment types
+  type?: string;
+  status?: string;
+  typeData?: string | null;
+  endDate?: string | null;
+  parentEventId?: string | null;
+  // Sub-eventos count (para viajes)
+  _count?: { subEvents?: number };
 }
 
 interface TaskItemProps {
@@ -128,6 +139,22 @@ export function TaskItem({ task, onComplete, onReopen, onDelete, onEdit, draggab
       {/* Content */}
       <div className="flex-1 min-w-0" onClick={() => onEdit(task)}>
         <div className="flex items-center gap-2">
+          {/* Commitment type icon (only if not a regular task) */}
+          {task.type && task.type !== 'task' && (
+            <span className="text-sm" title={
+              task.type === 'call' ? 'Llamada' :
+              task.type === 'email' ? 'Email' :
+              task.type === 'video' ? 'Videoconferencia' :
+              task.type === 'meeting' ? 'Reunión' :
+              task.type === 'trip' ? 'Viaje' : ''
+            }>
+              {task.type === 'call' ? '📞' :
+               task.type === 'email' ? '📧' :
+               task.type === 'video' ? '📹' :
+               task.type === 'meeting' ? '🤝' :
+               task.type === 'trip' ? '✈️' : ''}
+            </span>
+          )}
           <span className={`text-sm ${isCompleted ? 'line-through text-gray-400' : 'text-gray-900 dark:text-white'}`}>
             {task.title}
           </span>
@@ -139,6 +166,31 @@ export function TaskItem({ task, onComplete, onReopen, onDelete, onEdit, draggab
           )}
           {task.isWaitingFor && (
             <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">⏳</span>
+          )}
+          {/* Email status badge */}
+          {task.type === 'email' && task.status === 'sent' && (
+            <span className="text-xs px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">Enviado</span>
+          )}
+          {task.type === 'email' && task.status === 'waiting' && (
+            <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">Esperando resp.</span>
+          )}
+          {/* Trip sub-events badge */}
+          {task.type === 'trip' && task._count?.subEvents !== undefined && task._count.subEvents > 0 && (
+            <span className="text-xs px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded">
+              📅 {task._count.subEvents} eventos
+            </span>
+          )}
+          {/* Duration badge for video/meeting */}
+          {(task.type === 'video' || task.type === 'meeting') && task.dueDate && task.endDate && (
+            <span className="text-xs text-gray-400">
+              {(() => {
+                const start = new Date(task.dueDate);
+                const end = new Date(task.endDate);
+                const mins = Math.round((end.getTime() - start.getTime()) / 60000);
+                if (mins >= 60) return `${Math.round(mins / 60)}h`;
+                return `${mins}min`;
+              })()}
+            </span>
           )}
         </div>
 
@@ -167,7 +219,7 @@ export function TaskItem({ task, onComplete, onReopen, onDelete, onEdit, draggab
         )}
 
         {/* Meta info */}
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
           {/* Project badge */}
           {task.project && (
             <span
@@ -175,6 +227,22 @@ export function TaskItem({ task, onComplete, onReopen, onDelete, onEdit, draggab
               style={{ backgroundColor: `${task.project.color}20`, color: task.project.color }}
             >
               {task.project.name}
+            </span>
+          )}
+
+          {/* Assigned to badge */}
+          {task.assignedTo && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded flex items-center gap-1"
+              style={{ backgroundColor: `${task.assignedTo.color}20`, color: task.assignedTo.color }}
+            >
+              <span 
+                className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] text-white font-medium"
+                style={{ backgroundColor: task.assignedTo.color }}
+              >
+                {task.assignedTo.name.charAt(0).toUpperCase()}
+              </span>
+              {task.assignedTo.name.split(' ')[0]}
             </span>
           )}
 

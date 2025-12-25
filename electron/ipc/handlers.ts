@@ -130,9 +130,9 @@ export function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('task:get-upcoming', async () => {
+  ipcMain.handle('task:get-upcoming', async (_event, days?: number) => {
     try {
-      const tasks = await taskService.getUpcomingTasks();
+      const tasks = await taskService.getUpcomingTasks(days || 30);
       return tasks;
     } catch (error) {
       logger.error('TASK_GET_UPCOMING error:', error);
@@ -296,6 +296,156 @@ export function setupIpcHandlers(): void {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // CONTACTOS / EQUIPO - LOCAL-FIRST
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('contact:get-all', async () => {
+    try {
+      const contacts = await taskService.getAllContacts();
+      return contacts;
+    } catch (error) {
+      logger.error('CONTACT_GET_ALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('contact:create', async (_event, data: { name: string; email?: string; color?: string }) => {
+    try {
+      const contact = await taskService.createContact(data);
+      syncToFirestoreBackground();
+      return contact;
+    } catch (error) {
+      logger.error('CONTACT_CREATE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('contact:update', async (_event, id: string, data: { name?: string; email?: string; color?: string }) => {
+    try {
+      const contact = await taskService.updateContact(id, data);
+      syncToFirestoreBackground();
+      return contact;
+    } catch (error) {
+      logger.error('CONTACT_UPDATE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('contact:delete', async (_event, id: string) => {
+    try {
+      const result = await taskService.deleteContact(id);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('CONTACT_DELETE error:', error);
+      throw error;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ATTACHMENTS - Archivos, URLs y Emails adjuntos
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('attachment:get-all', async (_event, taskId: string) => {
+    try {
+      const { getTaskAttachments } = await import('../services/attachmentService');
+      return getTaskAttachments(taskId);
+    } catch (error) {
+      logger.error('ATTACHMENT_GET_ALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('attachment:add-file', async (_event, data: { taskId: string; filePath: string; name?: string }) => {
+    try {
+      const { addFileAttachment } = await import('../services/attachmentService');
+      const attachment = await addFileAttachment(data);
+      syncToFirestoreBackground();
+      return attachment;
+    } catch (error) {
+      logger.error('ATTACHMENT_ADD_FILE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('attachment:add-url', async (_event, data: { taskId: string; url: string; name?: string }) => {
+    try {
+      const { addUrlAttachment } = await import('../services/attachmentService');
+      const attachment = await addUrlAttachment(data);
+      syncToFirestoreBackground();
+      return attachment;
+    } catch (error) {
+      logger.error('ATTACHMENT_ADD_URL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('attachment:add-email', async (_event, data: { taskId: string; url: string; name?: string; metadata?: { from?: string; subject?: string; date?: string } }) => {
+    try {
+      const { addEmailAttachment } = await import('../services/attachmentService');
+      const attachment = await addEmailAttachment(data);
+      syncToFirestoreBackground();
+      return attachment;
+    } catch (error) {
+      logger.error('ATTACHMENT_ADD_EMAIL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('attachment:delete', async (_event, id: string) => {
+    try {
+      const { deleteAttachment } = await import('../services/attachmentService');
+      const result = await deleteAttachment(id);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('ATTACHMENT_DELETE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('attachment:open', async (_event, id: string) => {
+    try {
+      const { openAttachment } = await import('../services/attachmentService');
+      return openAttachment(id);
+    } catch (error) {
+      logger.error('ATTACHMENT_OPEN error:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('attachment:get-content', async (_event, id: string) => {
+    try {
+      const { getFileContent } = await import('../services/attachmentService');
+      return getFileContent(id);
+    } catch (error) {
+      logger.error('ATTACHMENT_GET_CONTENT error:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('attachment:select-file', async () => {
+    try {
+      const { dialog } = await import('electron');
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+          { name: 'Documentos', extensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'] },
+          { name: 'Imágenes', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'] },
+          { name: 'Todos', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePaths[0]) {
+        return null;
+      }
+      return result.filePaths[0];
+    } catch (error) {
+      logger.error('ATTACHMENT_SELECT_FILE error:', error);
+      return null;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // BÚSQUEDA DE TAREAS (Fase 3) - LOCAL-FIRST
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -378,6 +528,156 @@ export function setupIpcHandlers(): void {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // SCHEDULE ANALYZER HANDLERS - Análisis de conflictos y carga
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('schedule:analyze', async (_event, proposedDate: string, excludeTaskId?: string) => {
+    try {
+      const { analyzeSchedule } = await import('../services/scheduleAnalyzerService');
+      return await analyzeSchedule(proposedDate, excludeTaskId);
+    } catch (error) {
+      logger.error('SCHEDULE_ANALYZE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('schedule:check-conflicts', async (_event, proposedDate: string, excludeTaskId?: string) => {
+    try {
+      const { quickConflictCheck } = await import('../services/scheduleAnalyzerService');
+      return await quickConflictCheck(proposedDate, excludeTaskId);
+    } catch (error) {
+      logger.error('SCHEDULE_CHECK_CONFLICTS error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('schedule:week-analysis', async (_event, startDate?: string) => {
+    try {
+      const { getWeekAnalysis } = await import('../services/scheduleAnalyzerService');
+      return await getWeekAnalysis(startDate ? new Date(startDate) : undefined);
+    } catch (error) {
+      logger.error('SCHEDULE_WEEK_ANALYSIS error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('schedule:detect-all-conflicts', async () => {
+    try {
+      const { detectAllConflicts } = await import('../services/scheduleAnalyzerService');
+      return await detectAllConflicts();
+    } catch (error) {
+      logger.error('SCHEDULE_DETECT_ALL_CONFLICTS error:', error);
+      throw error;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // AI ASSISTANT HANDLERS - Integración con OpenAI
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('ai:get-config', async () => {
+    try {
+      const { getAIConfig } = await import('../services/aiService');
+      return getAIConfig();
+    } catch (error) {
+      logger.error('AI_GET_CONFIG error:', error);
+      return { model: 'gpt-4o-mini', enabled: false, hasApiKey: false };
+    }
+  });
+
+  ipcMain.handle('ai:save-config', async (_event, config: { apiKey?: string; model?: string; enabled?: boolean }) => {
+    try {
+      const { saveAIConfig } = await import('../services/aiService');
+      saveAIConfig(config);
+      return { success: true };
+    } catch (error) {
+      logger.error('AI_SAVE_CONFIG error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('ai:validate-key', async (_event, apiKey: string) => {
+    try {
+      const { validateApiKey } = await import('../services/aiService');
+      return await validateApiKey(apiKey);
+    } catch (error) {
+      logger.error('AI_VALIDATE_KEY error:', error);
+      return { valid: false, error: 'Error de validación' };
+    }
+  });
+
+  ipcMain.handle('ai:chat', async (_event, message: string, context?: any) => {
+    try {
+      const { chat } = await import('../services/aiService');
+      return await chat(message, context);
+    } catch (error) {
+      logger.error('AI_CHAT error:', error);
+      return { success: false, error: 'Error al comunicar con IA' };
+    }
+  });
+
+  ipcMain.handle('ai:suggest-time', async (_event, taskTitle: string, existingTasks: any[]) => {
+    try {
+      const { suggestBestTime } = await import('../services/aiService');
+      return await suggestBestTime(taskTitle, existingTasks);
+    } catch (error) {
+      logger.error('AI_SUGGEST_TIME error:', error);
+      return { success: false, error: 'Error al sugerir horario' };
+    }
+  });
+
+  ipcMain.handle('ai:generate-subtasks', async (_event, taskTitle: string, taskNotes?: string) => {
+    try {
+      const { generateSubtasks } = await import('../services/aiService');
+      return await generateSubtasks(taskTitle, taskNotes);
+    } catch (error) {
+      logger.error('AI_GENERATE_SUBTASKS error:', error);
+      return { success: false, error: 'Error al generar subtareas' };
+    }
+  });
+
+  ipcMain.handle('ai:prioritize', async (_event, tasks: any[]) => {
+    try {
+      const { prioritizeTasks } = await import('../services/aiService');
+      return await prioritizeTasks(tasks);
+    } catch (error) {
+      logger.error('AI_PRIORITIZE error:', error);
+      return { success: false, error: 'Error al priorizar' };
+    }
+  });
+
+  ipcMain.handle('ai:is-available', async () => {
+    try {
+      const { isAIAvailable } = await import('../services/aiService');
+      return isAIAvailable();
+    } catch (error) {
+      return false;
+    }
+  });
+
+  // Análisis básico de texto (sin IA, instantáneo)
+  ipcMain.handle('ai:parse-task-basic', async (_event, input: string) => {
+    try {
+      const { parseTaskBasic } = await import('../services/aiService');
+      return { success: true, parsed: parseTaskBasic(input) };
+    } catch (error) {
+      logger.error('AI_PARSE_TASK_BASIC error:', error);
+      return { success: false, error: 'Error al analizar texto' };
+    }
+  });
+
+  // Análisis profundo con IA
+  ipcMain.handle('ai:parse-task-deep', async (_event, input: string, options?: { generateSubtasks?: boolean }) => {
+    try {
+      const { parseTaskWithAI } = await import('../services/aiService');
+      return await parseTaskWithAI(input, options);
+    } catch (error) {
+      logger.error('AI_PARSE_TASK_DEEP error:', error);
+      return { success: false, error: 'Error al analizar con IA' };
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // REMINDER HANDLERS
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -410,6 +710,87 @@ export function setupIpcHandlers(): void {
       return reminder;
     } catch (error) {
       logger.error('REMINDER_CREATE error:', error);
+      throw error;
+    }
+  });
+
+  // Obtener reminders de una tarea con su configuración de antelación
+  ipcMain.handle(IPC_CHANNELS.REMINDER_GET_FOR_TASK, async (_event, taskId: string) => {
+    try {
+      const reminders = await reminderService.getRemindersForTask(taskId);
+      return reminders.map(r => ({
+        id: r.id,
+        taskId: r.taskId,
+        fireAt: r.fireAt,
+        advanceMinutes: r.advanceMinutes ?? 0,
+        advanceLabel: r.advanceLabel ?? 'A la hora del evento',
+        type: r.type,
+        dismissed: r.dismissed,
+        firedAt: r.firedAt,
+      }));
+    } catch (error) {
+      logger.error('REMINDER_GET_FOR_TASK error:', error);
+      throw error;
+    }
+  });
+
+  // Actualizar reminders de una tarea (crear/eliminar según la lista de antelaciones)
+  ipcMain.handle(IPC_CHANNELS.REMINDER_UPDATE_FOR_TASK, async (
+    _event, 
+    taskId: string, 
+    eventDate: string, 
+    advanceMinutesList: number[]
+  ) => {
+    try {
+      const reminders = await reminderService.updateRemindersForTask(
+        taskId,
+        new Date(eventDate),
+        advanceMinutesList
+      );
+      reschedule();
+      return reminders.map(r => ({
+        id: r.id,
+        taskId: r.taskId,
+        fireAt: r.fireAt,
+        advanceMinutes: r.advanceMinutes ?? 0,
+        advanceLabel: r.advanceLabel ?? 'A la hora del evento',
+        type: r.type,
+      }));
+    } catch (error) {
+      logger.error('REMINDER_UPDATE_FOR_TASK error:', error);
+      throw error;
+    }
+  });
+
+  // Obtener las opciones de recordatorio disponibles
+  ipcMain.handle(IPC_CHANNELS.REMINDER_GET_OPTIONS, async () => {
+    try {
+      const { REMINDER_OPTIONS } = await import('../services/commitmentService');
+      // Transformar label a advanceLabel para consistencia con el frontend
+      return REMINDER_OPTIONS.map(opt => ({
+        advanceMinutes: opt.advanceMinutes,
+        advanceLabel: opt.label,
+      }));
+    } catch (error) {
+      logger.error('REMINDER_GET_OPTIONS error:', error);
+      throw error;
+    }
+  });
+
+  // Obtener los recordatorios por defecto según tipo de compromiso
+  ipcMain.handle(IPC_CHANNELS.REMINDER_GET_DEFAULTS, async (_event, commitmentType: string) => {
+    try {
+      const { DEFAULT_REMINDERS, REMINDER_OPTIONS } = await import('../services/commitmentService');
+      const defaults = DEFAULT_REMINDERS[commitmentType as keyof typeof DEFAULT_REMINDERS] || DEFAULT_REMINDERS.task;
+      return defaults.map(adv => {
+        const option = REMINDER_OPTIONS.find(opt => opt.advanceMinutes === adv);
+        return {
+          advanceMinutes: adv,
+          advanceLabel: option?.label ?? `${adv} minutos antes`,
+        };
+      });
+    } catch (error) {
+      logger.error('REMINDER_GET_DEFAULTS error:', error);
       throw error;
     }
   });
@@ -879,6 +1260,155 @@ export function setupIpcHandlers(): void {
     } catch (error) {
       logger.error('OVERDUE_POPUP_IS_OPEN error:', error);
       return false;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COMMITMENT HANDLERS - Acciones para tipos de compromiso
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('commitment:get-config', async () => {
+    const { COMMITMENT_CONFIG } = await import('../services/commitmentService');
+    return COMMITMENT_CONFIG;
+  });
+
+  // Llamadas
+  ipcMain.handle('commitment:start-call', async (_event, taskId: string) => {
+    try {
+      const { startCall } = await import('../services/commitmentService');
+      const result = await startCall(taskId);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('COMMITMENT_START_CALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('commitment:complete-call', async (_event, taskId: string, notes?: string) => {
+    try {
+      const { completeCall } = await import('../services/commitmentService');
+      const result = await completeCall(taskId, notes);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('COMMITMENT_COMPLETE_CALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('commitment:retry-call', async (_event, taskId: string, retryInDays: number) => {
+    try {
+      const { retryCall } = await import('../services/commitmentService');
+      const result = await retryCall(taskId, retryInDays);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('COMMITMENT_RETRY_CALL error:', error);
+      throw error;
+    }
+  });
+
+  // Emails
+  ipcMain.handle('commitment:mark-email-sent', async (_event, taskId: string) => {
+    try {
+      const { markEmailSent } = await import('../services/commitmentService');
+      const result = await markEmailSent(taskId);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('COMMITMENT_MARK_EMAIL_SENT error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('commitment:wait-email-response', async (_event, taskId: string, reminderInDays: number) => {
+    try {
+      const { waitForEmailResponse } = await import('../services/commitmentService');
+      const result = await waitForEmailResponse(taskId, reminderInDays);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('COMMITMENT_WAIT_EMAIL_RESPONSE error:', error);
+      throw error;
+    }
+  });
+
+  // Videoconferencia
+  ipcMain.handle('commitment:get-meeting-url', async (_event, taskId: string) => {
+    try {
+      const { getMeetingUrl } = await import('../services/commitmentService');
+      return await getMeetingUrl(taskId);
+    } catch (error) {
+      logger.error('COMMITMENT_GET_MEETING_URL error:', error);
+      throw error;
+    }
+  });
+
+  // Ubicaciones
+  ipcMain.handle('location:create', async (_event, data: { name: string; address?: string; city?: string; province?: string }) => {
+    try {
+      const { createLocation } = await import('../services/commitmentService');
+      const result = await createLocation(data);
+      syncToFirestoreBackground();
+      return result;
+    } catch (error) {
+      logger.error('LOCATION_CREATE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('location:get-all', async () => {
+    try {
+      const { getAllLocations } = await import('../services/commitmentService');
+      return await getAllLocations();
+    } catch (error) {
+      logger.error('LOCATION_GET_ALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('location:search', async (_event, query: string) => {
+    try {
+      const { searchLocations } = await import('../services/commitmentService');
+      return await searchLocations(query);
+    } catch (error) {
+      logger.error('LOCATION_SEARCH error:', error);
+      throw error;
+    }
+  });
+
+  // Viajes - Sub-eventos
+  ipcMain.handle('commitment:get-trip-subevents', async (_event, tripId: string) => {
+    try {
+      const { getTripSubEvents } = await import('../services/commitmentService');
+      return await getTripSubEvents(tripId);
+    } catch (error) {
+      logger.error('COMMITMENT_GET_TRIP_SUBEVENTS error:', error);
+      throw error;
+    }
+  });
+
+  // Conflictos de desplazamiento
+  ipcMain.handle('commitment:check-travel-conflicts', async (_event, data: {
+    meetingStart: string;
+    meetingEnd: string;
+    travelTimeMinutes: number;
+    returnTravelMinutes?: number;
+    excludeTaskId?: string;
+  }) => {
+    try {
+      const { checkTravelConflicts } = await import('../services/commitmentService');
+      return await checkTravelConflicts(
+        new Date(data.meetingStart),
+        new Date(data.meetingEnd),
+        data.travelTimeMinutes,
+        data.returnTravelMinutes,
+        data.excludeTaskId
+      );
+    } catch (error) {
+      logger.error('COMMITMENT_CHECK_TRAVEL_CONFLICTS error:', error);
+      throw error;
     }
   });
 

@@ -765,6 +765,9 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       border-radius: 16px;
       width: 90%;
       max-width: 400px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
       box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
       border: 1px solid ${theme.border};
       animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -782,6 +785,7 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-shrink: 0;
     }
     
     .edit-header h2 {
@@ -810,6 +814,8 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
     
     .edit-body {
       padding: 20px;
+      overflow-y: auto;
+      flex: 1;
     }
     
     .edit-task-title {
@@ -870,6 +876,7 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       display: flex;
       gap: 10px;
       justify-content: flex-end;
+      flex-shrink: 0;
     }
     
     .edit-btn {
@@ -901,6 +908,150 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
     .edit-btn-save:hover {
       box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
       transform: translateY(-1px);
+    }
+
+    .edit-btn-save.has-conflict {
+      background: linear-gradient(135deg, #F59E0B, #D97706);
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    }
+
+    .edit-btn-save.has-conflict:hover {
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+    }
+    
+    /* Conflict Warning Styles */
+    .conflict-warning {
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      margin-top: 16px;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    .conflict-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    
+    .conflict-text {
+      flex: 1;
+    }
+    
+    .conflict-text strong {
+      display: block;
+      color: #EF4444;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    
+    .conflict-text p {
+      color: ${theme.textSecondary};
+      font-size: 12px;
+      margin: 0;
+      line-height: 1.4;
+    }
+    
+    .dayload-warning {
+      display: flex;
+      gap: 10px;
+      padding: 10px 12px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 8px;
+      margin-top: 12px;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    .dayload-icon {
+      font-size: 16px;
+    }
+    
+    .dayload-text {
+      color: ${theme.textSecondary};
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    
+    .suggestions-container {
+      margin-top: 12px;
+      padding: 12px;
+      background: ${theme.cardBg};
+      border: 1px solid ${theme.border};
+      border-radius: 10px;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    .suggestions-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: ${theme.textMuted};
+      margin-bottom: 10px;
+    }
+    
+    .suggestions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .suggestion-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: ${theme.bg};
+      border: 1px solid ${theme.border};
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    
+    .suggestion-item:hover {
+      border-color: #3B82F6;
+      background: rgba(59, 130, 246, 0.05);
+    }
+    
+    .suggestion-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    
+    .suggestion-date {
+      font-size: 12px;
+      font-weight: 600;
+      color: ${theme.text};
+    }
+    
+    .suggestion-reason {
+      font-size: 11px;
+      color: ${theme.textMuted};
+    }
+    
+    .suggestion-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    
+    .suggestion-badge.light {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22C55E;
+    }
+    
+    .suggestion-badge.moderate {
+      background: rgba(245, 158, 11, 0.15);
+      color: #F59E0B;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     
     /* Slide-left animation for removed tasks */
@@ -982,10 +1133,28 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
             <input type="time" id="editTime">
           </div>
         </div>
+        <!-- Conflict Warning -->
+        <div class="conflict-warning" id="conflictWarning" style="display: none;">
+          <div class="conflict-icon">⚠️</div>
+          <div class="conflict-text">
+            <strong>Conflicto de horario detectado</strong>
+            <p id="conflictMessage"></p>
+          </div>
+        </div>
+        <!-- Day Load Warning -->
+        <div class="dayload-warning" id="dayLoadWarning" style="display: none;">
+          <div class="dayload-icon">📊</div>
+          <div class="dayload-text" id="dayLoadMessage"></div>
+        </div>
+        <!-- Suggestions -->
+        <div class="suggestions-container" id="suggestionsContainer" style="display: none;">
+          <div class="suggestions-title">💡 Sugerencias alternativas:</div>
+          <div class="suggestions-list" id="suggestionsList"></div>
+        </div>
       </div>
       <div class="edit-footer">
         <button class="edit-btn edit-btn-cancel" onclick="closeEditModal()">Cancelar</button>
-        <button class="edit-btn edit-btn-save" onclick="saveTask()">Guardar</button>
+        <button class="edit-btn edit-btn-save" id="saveBtn" onclick="saveTask()">Guardar</button>
       </div>
     </div>
   </div>
@@ -1019,6 +1188,9 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       
       currentEditingTaskId = taskId;
       
+      // Reset conflict UI
+      resetConflictUI();
+      
       // Populate modal
       document.getElementById('editTaskTitle').textContent = task.title;
       
@@ -1033,17 +1205,130 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       document.getElementById('editDate').value = dateToUse.toISOString().split('T')[0];
       document.getElementById('editTime').value = dateToUse.toTimeString().slice(0, 5);
       
+      // Check conflicts for initial date
+      checkScheduleConflicts();
+      
       // Show modal
       document.getElementById('editOverlay').classList.add('visible');
     }
     
+    function resetConflictUI() {
+      document.getElementById('conflictWarning').style.display = 'none';
+      document.getElementById('dayLoadWarning').style.display = 'none';
+      document.getElementById('suggestionsContainer').style.display = 'none';
+      document.getElementById('saveBtn').classList.remove('has-conflict');
+      document.getElementById('saveBtn').textContent = 'Guardar';
+    }
+    
+    let checkTimeout = null;
+    async function checkScheduleConflicts() {
+      const dateValue = document.getElementById('editDate').value;
+      const timeValue = document.getElementById('editTime').value;
+      
+      if (!dateValue) return;
+      
+      const proposedDate = new Date(dateValue + 'T' + (timeValue || '09:00') + ':00');
+      
+      // Clear previous timeout to debounce
+      if (checkTimeout) clearTimeout(checkTimeout);
+      
+      checkTimeout = setTimeout(async () => {
+        try {
+          const analysis = await ipcRenderer.invoke('schedule:analyze', proposedDate.toISOString(), currentEditingTaskId);
+          
+          // Reset UI first
+          resetConflictUI();
+          
+          const saveBtn = document.getElementById('saveBtn');
+          
+          // Show conflict warning if exists
+          if (analysis.conflicts && analysis.conflicts.hasConflicts) {
+            const conflictNames = analysis.conflicts.conflicts.map(c => c.title).join(', ');
+            document.getElementById('conflictMessage').textContent = 
+              'Ya tienes programado: ' + conflictNames + ' a una hora similar.';
+            document.getElementById('conflictWarning').style.display = 'flex';
+            saveBtn.classList.add('has-conflict');
+            saveBtn.textContent = 'Guardar de todas formas';
+          }
+          
+          // Show day load warning if heavy/moderate
+          if (analysis.dayLoad && analysis.dayLoad.level !== 'light') {
+            const levelText = analysis.dayLoad.level === 'heavy' ? 'muy cargado' : 'moderadamente ocupado';
+            document.getElementById('dayLoadMessage').innerHTML = 
+              '<strong>' + getDayName(proposedDate) + '</strong> está ' + levelText + 
+              ' con <strong>' + analysis.dayLoad.taskCount + ' tareas</strong>.';
+            document.getElementById('dayLoadWarning').style.display = 'flex';
+          }
+          
+          // Show suggestions if available
+          if (analysis.suggestions && analysis.suggestions.length > 0) {
+            const suggestionsList = document.getElementById('suggestionsList');
+            suggestionsList.innerHTML = '';
+            
+            analysis.suggestions.forEach(suggestion => {
+              const suggDate = new Date(suggestion.date);
+              const item = document.createElement('div');
+              item.className = 'suggestion-item';
+              item.onclick = () => applySuggestion(suggDate);
+              item.innerHTML = \`
+                <div class="suggestion-info">
+                  <span class="suggestion-date">\${formatSuggestionDate(suggDate)}</span>
+                  <span class="suggestion-reason">\${suggestion.reason}</span>
+                </div>
+                <span class="suggestion-badge \${suggestion.dayLoad}">\${suggestion.dayLoad === 'light' ? 'Libre' : 'Ocupado'}</span>
+              \`;
+              suggestionsList.appendChild(item);
+            });
+            
+            document.getElementById('suggestionsContainer').style.display = 'block';
+          }
+        } catch (error) {
+          console.error('Error checking schedule conflicts:', error);
+        }
+      }, 300);
+    }
+    
+    function getDayName(date) {
+      const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      return days[date.getDay()];
+    }
+    
+    function formatSuggestionDate(date) {
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      const timeStr = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      
+      if (date.toDateString() === today.toDateString()) {
+        return 'Hoy a las ' + timeStr;
+      } else if (date.toDateString() === tomorrow.toDateString()) {
+        return 'Mañana a las ' + timeStr;
+      } else {
+        return date.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) + ' a las ' + timeStr;
+      }
+    }
+    
+    function applySuggestion(date) {
+      document.getElementById('editDate').value = date.toISOString().split('T')[0];
+      document.getElementById('editTime').value = date.toTimeString().slice(0, 5);
+      checkScheduleConflicts();
+    }
+    
+    // Add event listeners for date/time changes
+    document.getElementById('editDate').addEventListener('change', checkScheduleConflicts);
+    document.getElementById('editTime').addEventListener('change', checkScheduleConflicts);
+    
     function closeEditModal() {
       document.getElementById('editOverlay').classList.remove('visible');
       currentEditingTaskId = null;
+      resetConflictUI();
     }
     
     async function saveTask() {
       if (!currentEditingTaskId) return;
+      
+      const taskIdToUpdate = currentEditingTaskId; // Guardar antes de limpiar
       
       const dateValue = document.getElementById('editDate').value;
       const timeValue = document.getElementById('editTime').value;
@@ -1064,13 +1349,16 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       
       // Send update to main process
       ipcRenderer.send('overdue:updateTask', { 
-        taskId: currentEditingTaskId, 
+        taskId: taskIdToUpdate, 
         dueDate: newDueDate.toISOString() 
       });
       
-      // Close modal and animate out
-      closeEditModal();
-      slideOutTask(currentEditingTaskId);
+      // Close modal first
+      document.getElementById('editOverlay').classList.remove('visible');
+      currentEditingTaskId = null;
+      
+      // Then animate out the task
+      slideOutTask(taskIdToUpdate);
     }
     
     function slideOutTask(taskId) {

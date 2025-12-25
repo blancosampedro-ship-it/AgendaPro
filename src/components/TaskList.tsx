@@ -24,6 +24,9 @@ interface Task {
   waitingForNote: string | null;
   projectId: string | null;
   project: { id: string; name: string; color: string } | null;
+  // Asignación
+  assignedToId: string | null;
+  assignedTo: { id: string; name: string; email: string | null; color: string } | null;
   // Fase 4
   isRecurring: boolean;
   recurrenceRule: string | null;
@@ -63,6 +66,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [upcomingDays, setUpcomingDays] = useState<number>(30); // Rango de días para próximas
 
   // Cargar proyectos
   const fetchProjects = useCallback(async () => {
@@ -105,7 +109,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
             fetchedTasks = await api.getOverdueTasks();
             break;
           case 'upcoming':
-            fetchedTasks = await api.getUpcomingTasks();
+            fetchedTasks = await api.getUpcomingTasks(upcomingDays);
             break;
           case 'waiting':
             fetchedTasks = await api.getWaitingTasks();
@@ -129,7 +133,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
     } finally {
       setLoading(false);
     }
-  }, [filter, selectedProjectId, searchQuery]);
+  }, [filter, selectedProjectId, searchQuery, upcomingDays]);
 
   // Carga inicial: fetch paralelo de tasks y projects
   useEffect(() => {
@@ -528,20 +532,37 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1 p-2 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
+        <div className="flex gap-1 p-2 bg-gray-50 dark:bg-gray-800 overflow-x-auto items-center">
           {filterButtons.map(btn => (
-            <button
-              key={btn.key}
-              onClick={() => handleFilterClick(btn.key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${
-                filter === btn.key && !selectedProjectId && !searchQuery
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-              }`}
-            >
-              <span>{btn.emoji}</span>
-              <span>{btn.label}</span>
-            </button>
+            <div key={btn.key} className="flex items-center">
+              <button
+                onClick={() => handleFilterClick(btn.key)}
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm whitespace-nowrap transition-colors ${
+                  filter === btn.key && !selectedProjectId && !searchQuery
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                } ${btn.key === 'upcoming' && filter === 'upcoming' ? 'rounded-l-lg' : 'rounded-lg'}`}
+              >
+                <span>{btn.emoji}</span>
+                <span>{btn.label}</span>
+              </button>
+              {/* Selector de rango para Próximas */}
+              {btn.key === 'upcoming' && filter === 'upcoming' && !selectedProjectId && !searchQuery && (
+                <select
+                  value={upcomingDays}
+                  onChange={(e) => setUpcomingDays(Number(e.target.value))}
+                  className="px-2 py-1.5 text-sm bg-blue-600 text-white border-l border-blue-400 rounded-r-lg cursor-pointer focus:outline-none hover:bg-blue-700"
+                >
+                  <option value={7}>7 días</option>
+                  <option value={14}>14 días</option>
+                  <option value={30}>30 días</option>
+                  <option value={60}>60 días</option>
+                  <option value={90}>90 días</option>
+                  <option value={365}>Este año</option>
+                  <option value={9999}>Todas</option>
+                </select>
+              )}
+            </div>
           ))}
         </div>
 
@@ -620,6 +641,10 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
             setIsModalOpen(true);
           }}
           onClose={() => setShowCalendar(false)}
+          onTaskComplete={(taskId) => {
+            // Actualizar la lista de tareas después de completar
+            setTasks(prev => prev.filter(t => t.id !== taskId));
+          }}
         />
       )}
 

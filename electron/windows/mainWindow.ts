@@ -52,10 +52,10 @@ export async function createMainWindow(devServerUrl: string | null): Promise<Bro
     },
   });
 
-  // Mostrar cuando esté lista (evita flash blanco)
+  // NO mostrar automáticamente - el main.ts controla esto con el splash
   mainWindow.once('ready-to-show', () => {
     logger.debug('Main window ready to show');
-    mainWindow?.show();
+    // La ventana se mostrará desde main.ts después de cerrar el splash
   });
 
   // IMPORTANTE: Cerrar ventana NO cierra la app
