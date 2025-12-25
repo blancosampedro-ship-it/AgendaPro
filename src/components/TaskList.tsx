@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TaskItem } from './TaskItem';
 import { TaskModal } from './TaskModal';
+import { ProjectModal } from './ProjectModal';
 import SyncSettings from './SyncSettings';
 import AppSettings from './AppSettings';
 import CalendarView from './CalendarView';
@@ -322,17 +323,20 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
     setSearchQuery('');
   };
 
-  const handleCreateProject = async () => {
-    const name = prompt('Nombre del proyecto:');
-    if (!name?.trim()) return;
-    
-    try {
-      const api = (window as any).electronAPI;
-      await api.createProject({ name: name.trim() });
-      await fetchProjects();
-    } catch (error) {
-      console.error('Error creating project:', error);
-    }
+  const handleCreateProject = () => {
+    setEditingProject(null);
+    setShowProjectModal(true);
+  };
+
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project);
+    setShowProjectModal(true);
+  };
+
+  const handleProjectSave = async () => {
+    setShowProjectModal(false);
+    setEditingProject(null);
+    await fetchProjects();
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -419,27 +423,42 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
+                {project.icon && <span className="text-sm">{project.icon}</span>}
                 <span 
-                  className="w-3 h-3 rounded-full"
+                  className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: project.color }}
                 />
                 <span className="flex-1 truncate">{project.name}</span>
                 <span className="text-xs text-gray-400">{project._count.tasks}</span>
               </button>
               
-              {/* Botón eliminar proyecto */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteProject(project.id);
-                }}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Eliminar proyecto"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              {/* Botones editar/eliminar proyecto */}
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditProject(project);
+                  }}
+                  className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                  title="Editar proyecto"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteProject(project.id);
+                  }}
+                  className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                  title="Eliminar proyecto"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -620,6 +639,18 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
           defaultProjectId={selectedProjectId}
           onClose={handleModalClose}
           onSave={handleModalSave}
+        />
+      )}
+
+      {/* Project Modal */}
+      {showProjectModal && (
+        <ProjectModal
+          project={editingProject}
+          onClose={() => {
+            setShowProjectModal(false);
+            setEditingProject(null);
+          }}
+          onSave={handleProjectSave}
         />
       )}
 
