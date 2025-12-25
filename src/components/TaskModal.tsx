@@ -358,6 +358,16 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   const [pendingFiles, setPendingFiles] = useState<{ filePath: string; name: string; isEml?: boolean }[]>([]);
   const [pendingUrls, setPendingUrls] = useState<{ url: string; name?: string }[]>([]);
   const [pendingEmails, setPendingEmails] = useState<{ url: string; name?: string; metadata?: any }[]>([]);
+  // Outlook emails pendientes
+  const [pendingOutlookEmails, setPendingOutlookEmails] = useState<{
+    id: string;
+    subject: string;
+    contact: string;
+    contactName: string;
+    isFromMe: boolean;
+    dateSent: string;
+  }[]>([]);
+  const [capturingOutlook, setCapturingOutlook] = useState(false);
   
   // Fase 4: Etiquetas
   const [tags, setTags] = useState<string[]>(() => {
@@ -659,6 +669,69 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
     setPendingEmails(pendingEmails.filter((_, i) => i !== index));
   };
 
+  const removePendingOutlookEmail = (index: number) => {
+    setPendingOutlookEmails(pendingOutlookEmails.filter((_, i) => i !== index));
+  };
+
+  // Capturar email desde Outlook
+  const handleCaptureFromOutlook = async () => {
+    const api = (window as any).electronAPI;
+    if (!api?.outlook?.captureEmail) {
+      alert('La integración con Outlook no está disponible');
+      return;
+    }
+
+    setCapturingOutlook(true);
+    try {
+      const result = await api.outlook.captureEmail();
+      
+      if (!result.success) {
+        alert(result.error || 'Error al capturar email de Outlook');
+        return;
+      }
+
+      const email = result.email;
+      const outlookUrl = `outlook://open?id=${encodeURIComponent(email.id)}`;
+      
+      // Si es tarea existente, guardar directamente
+      if (task?.id) {
+        try {
+          await api.attachments.addEmail({
+            taskId: task.id,
+            url: outlookUrl,
+            name: email.subject,
+            metadata: {
+              from: email.isFromMe ? undefined : email.sender,
+              to: email.isFromMe ? email.recipients.join(', ') : undefined,
+              subject: email.subject,
+              date: email.dateSent,
+              isFromMe: email.isFromMe,
+              outlookId: email.id,
+            },
+          });
+          await loadAttachments();
+        } catch (error: any) {
+          alert(error.message || 'Error al guardar email');
+        }
+      } else {
+        // Tarea nueva: guardar en pendientes
+        setPendingOutlookEmails([...pendingOutlookEmails, {
+          id: email.id,
+          subject: email.subject,
+          contact: email.isFromMe ? (email.recipients[0] || '') : email.sender,
+          contactName: email.isFromMe ? (email.recipientNames[0] || email.recipients[0] || '') : (email.senderName || email.sender),
+          isFromMe: email.isFromMe,
+          dateSent: email.dateSent,
+        }]);
+      }
+    } catch (error: any) {
+      console.error('Error capturing from Outlook:', error);
+      alert(error.message || 'Error al capturar email de Outlook');
+    } finally {
+      setCapturingOutlook(false);
+    }
+  };
+
   const handleDeleteAttachment = async (id: string) => {
     if (!confirm('¿Eliminar este adjunto?')) return;
     
@@ -705,13 +778,34 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
 
   const getAttachmentIcon = (attachment: Attachment): string => {
     if (attachment.type === 'url') return '🔗';
-    if (attachment.type === 'email') return '📧';
+    if (attachment.type === 'email') {
+      // Detectar si es email de Outlook con metadata
+      const metadata = attachment.metadata as any;
+      if (metadata?.outlookId) {
+        return metadata?.isFromMe ? '📤' : '📥';
+      }
+      return '✉️';
+    }
     if (attachment.mimeType?.startsWith('image/')) return '🖼️';
     if (attachment.mimeType === 'application/pdf') return '📕';
     if (attachment.mimeType?.includes('word')) return '📘';
     if (attachment.mimeType?.includes('excel') || attachment.mimeType?.includes('spreadsheet')) return '📗';
     if (attachment.mimeType?.includes('powerpoint') || attachment.mimeType?.includes('presentation')) return '📙';
     return '📄';
+  };
+
+  const getAttachmentSubtitle = (attachment: Attachment): string | null => {
+    if (attachment.type === 'email') {
+      const metadata = attachment.metadata as any;
+      if (metadata?.outlookId) {
+        if (metadata.isFromMe && metadata.to) {
+          return `Enviado a: ${metadata.to}`;
+        } else if (metadata.from) {
+          return `De: ${metadata.from}`;
+        }
+      }
+    }
+    return null;
   };
 
   // Funciones para subtareas
@@ -792,7 +886,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
       }
 
       // Si hay adjuntos pendientes y es tarea nueva, guardarlos
-      if (savedTaskId && !task && (pendingFiles.length > 0 || pendingUrls.length > 0 || pendingEmails.length > 0)) {
+      if (savedTaskId && !task && (pendingFiles.length > 0 || pendingUrls.length > 0 || pendingEmails.length > 0 || pendingOutlookEmails.length > 0)) {
         try {
           // Archivos (incluyendo .eml de Outlook)
           for (const pf of pendingFiles) {
@@ -806,9 +900,26 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
           for (const pu of pendingUrls) {
             await api.attachments.addUrl({ taskId: savedTaskId, url: pu.url, name: pu.name });
           }
-          // Emails
+          // Emails (Mail)
           for (const pe of pendingEmails) {
             await api.attachments.addEmail({ taskId: savedTaskId, url: pe.url, name: pe.name, metadata: pe.metadata });
+          }
+          // Emails de Outlook
+          for (const pe of pendingOutlookEmails) {
+            const outlookUrl = `outlook://open?id=${encodeURIComponent(pe.id)}`;
+            await api.attachments.addEmail({
+              taskId: savedTaskId,
+              url: outlookUrl,
+              name: pe.subject,
+              metadata: {
+                from: pe.isFromMe ? undefined : pe.contact,
+                to: pe.isFromMe ? pe.contact : undefined,
+                subject: pe.subject,
+                date: pe.dateSent,
+                isFromMe: pe.isFromMe,
+                outlookId: pe.id,
+              },
+            });
           }
         } catch (attachError) {
           console.error('Error saving attachments:', attachError);
@@ -2361,9 +2472,9 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
           >
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                📎 Adjuntos {(attachments.length + pendingFiles.length + pendingUrls.length + pendingEmails.length) > 0 && 
-                  `(${attachments.length + pendingFiles.length + pendingUrls.length + pendingEmails.length})`}
-                {uploadingFile && <span className="ml-2 text-xs text-blue-500">⏳</span>}
+                📎 Adjuntos {(attachments.length + pendingFiles.length + pendingUrls.length + pendingEmails.length + pendingOutlookEmails.length) > 0 && 
+                  `(${attachments.length + pendingFiles.length + pendingUrls.length + pendingEmails.length + pendingOutlookEmails.length})`}
+                {(uploadingFile || capturingOutlook) && <span className="ml-2 text-xs text-blue-500">⏳</span>}
               </label>
               <div className="flex gap-1">
                 <button
@@ -2387,7 +2498,16 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                   type="button"
                   onClick={() => setShowEmailInput(!showEmailInput)}
                   className={`px-2 py-1 text-xs rounded ${showEmailInput ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'}`}
-                  title="Añadir email"
+                  title="Añadir email (Mail)"
+                >
+                  ✉️
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCaptureFromOutlook}
+                  disabled={capturingOutlook}
+                  className={`px-2 py-1 text-xs rounded ${capturingOutlook ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'} disabled:opacity-50`}
+                  title="Capturar email de Outlook (selecciona un email en Outlook)"
                 >
                   📧
                 </button>
@@ -2428,7 +2548,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
             {showEmailInput && (
               <div className="mb-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded space-y-2">
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Arrastra un email desde Mail o Outlook, o pega el enlace message://
+                  Arrastra un email desde Mail o pega el enlace message://
                 </p>
                 <input
                   type="text"
@@ -2442,7 +2562,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                     type="text"
                     value={newEmailUrl}
                     onChange={(e) => setNewEmailUrl(e.target.value)}
-                    placeholder="message://... o outlook://..."
+                    placeholder="message://..."
                     className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700"
                   />
                   <button
@@ -2458,20 +2578,27 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
             )}
             
             {/* Lista de adjuntos */}
-            {attachments.length === 0 && pendingFiles.length === 0 && pendingUrls.length === 0 && pendingEmails.length === 0 ? (
+            {attachments.length === 0 && pendingFiles.length === 0 && pendingUrls.length === 0 && pendingEmails.length === 0 && pendingOutlookEmails.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-2">
-                {isDraggingFile ? 'Suelta aquí...' : 'Arrastra archivos o emails (Mail/Outlook) aquí'}
+                {isDraggingFile ? 'Suelta aquí...' : 'Arrastra archivos o emails aquí'}
               </p>
             ) : (
               <div className="space-y-1">
                 {/* Adjuntos guardados (tarea existente) */}
-                {attachments.map(attachment => (
+                {attachments.map(attachment => {
+                  const subtitle = getAttachmentSubtitle(attachment);
+                  return (
                   <div 
                     key={attachment.id}
                     className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded hover:bg-gray-100 dark:hover:bg-gray-600/50 group"
                   >
                     <span className="text-lg">{getAttachmentIcon(attachment)}</span>
                     <div className="flex-1 min-w-0">
+                      {subtitle && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                          {subtitle}
+                        </p>
+                      )}
                       <p className="text-sm text-gray-900 dark:text-white truncate">
                         {attachment.name}
                       </p>
@@ -2500,7 +2627,8 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 
                 {/* Archivos pendientes (tarea nueva) */}
                 {pendingFiles.map((pf, index) => (
@@ -2560,7 +2688,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                     key={`pending-email-${index}`}
                     className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded group"
                   >
-                    <span className="text-lg">📧</span>
+                    <span className="text-lg">✉️</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-900 dark:text-white truncate">
                         {pe.name || 'Email'}
@@ -2572,6 +2700,35 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                     <button
                       type="button"
                       onClick={() => removePendingEmail(index)}
+                      className="p-1 text-gray-400 hover:text-red-500"
+                      title="Quitar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {/* Emails de Outlook pendientes */}
+                {pendingOutlookEmails.map((pe, index) => (
+                  <div 
+                    key={`pending-outlook-${index}`}
+                    className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded group"
+                  >
+                    <span className="text-lg">{pe.isFromMe ? '📤' : '📥'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-blue-600 dark:text-blue-400">
+                        {pe.isFromMe ? 'Enviado a:' : 'De:'} {pe.contactName}
+                      </p>
+                      <p className="text-sm text-gray-900 dark:text-white truncate">
+                        {pe.subject}
+                      </p>
+                      <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                        Se guardará al crear la tarea
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removePendingOutlookEmail(index)}
                       className="p-1 text-gray-400 hover:text-red-500"
                       title="Quitar"
                     >

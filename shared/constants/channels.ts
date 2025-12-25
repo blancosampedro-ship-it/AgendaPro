@@ -38,6 +38,10 @@ export const IPC_CHANNELS = {
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
+  
+  // Outlook integration
+  OUTLOOK_CAPTURE_EMAIL: 'outlook:capture-email',
+  OUTLOOK_IS_AVAILABLE: 'outlook:is-available',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

@@ -212,6 +212,14 @@ const electronAPI = {
   },
 
   // ═══════════════════════════════════════════════════════════════════════
+  // OUTLOOK INTEGRATION - Captura de emails
+  // ═══════════════════════════════════════════════════════════════════════
+  outlook: {
+    captureEmail: () => ipcRenderer.invoke('outlook:capture-email'),
+    isAvailable: () => ipcRenderer.invoke('outlook:is-available'),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
   // EXPORT / IMPORT (Fase 6)
   // ═══════════════════════════════════════════════════════════════════════
   export: {

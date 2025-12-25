@@ -459,6 +459,30 @@ export function setupIpcHandlers(): void {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // OUTLOOK INTEGRATION - Captura de emails via AppleScript
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('outlook:capture-email', async () => {
+    try {
+      const { captureSelectedEmail } = await import('../services/outlookService');
+      return captureSelectedEmail();
+    } catch (error) {
+      logger.error('OUTLOOK_CAPTURE_EMAIL error:', error);
+      return { success: false, error: 'Error al capturar email de Outlook' };
+    }
+  });
+
+  ipcMain.handle('outlook:is-available', async () => {
+    try {
+      const { isOutlookAvailable } = await import('../services/outlookService');
+      return isOutlookAvailable();
+    } catch (error) {
+      logger.error('OUTLOOK_IS_AVAILABLE error:', error);
+      return false;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // BÚSQUEDA DE TAREAS (Fase 3) - LOCAL-FIRST
   // ═══════════════════════════════════════════════════════════════════════
 

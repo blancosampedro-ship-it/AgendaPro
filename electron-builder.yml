@@ -9,15 +9,8 @@ directories:
   buildResources: resources
   output: release
 
-# Habilitar asar con exclusiones para Prisma y binarios nativos
-asar: true
-asarUnpack:
-  - "node_modules/.prisma/**/*"
-  - "node_modules/@prisma/**/*"
-  - "node_modules/@libsql/**/*"
-  - "**/*.node"
-  - "**/*.dylib.node"
-  - "**/*.dll.node"
+# Desactivar asar para evitar problemas con Prisma
+asar: false
 
 # Archivos a incluir en el build
 files:
@@ -27,7 +20,30 @@ files:
   - package.json
   - ".env"
   - ".env.local"
-  - "node_modules/**/*"
+  - "node_modules/@prisma/**/*"
+  - "node_modules/.prisma/**/*"
+  - "node_modules/@libsql/**/*"
+  - "node_modules/firebase/**/*"
+  - "node_modules/@firebase/**/*"
+  - "node_modules/openai/**/*"
+  - "node_modules/electron-store/**/*"
+  - "node_modules/uuid/**/*"
+  - "node_modules/crypto-js/**/*"
+  - "node_modules/undici/**/*"
+  - "node_modules/formdata-node/**/*"
+  - "node_modules/node-domexception/**/*"
+  - "node_modules/web-streams-polyfill/**/*"
+  - "node_modules/conf/**/*"
+  - "node_modules/atomically/**/*"
+  - "node_modules/dot-prop/**/*"
+  - "node_modules/env-paths/**/*"
+  - "node_modules/json-schema-typed/**/*"
+  - "node_modules/ajv/**/*"
+  - "node_modules/ajv-formats/**/*"
+  - "node_modules/debounce-fn/**/*"
+  - "node_modules/mimic-fn/**/*"
+  - "node_modules/semver/**/*"
+  - "node_modules/type-fest/**/*"
   - "!**/node_modules/**/*.md"
   - "!**/node_modules/**/*.ts"
   - "!**/node_modules/**/*.map"
