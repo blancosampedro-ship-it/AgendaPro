@@ -1,0 +1,90 @@
+# Electron-builder configuration
+# https://www.electron.build/configuration/configuration
+
+appId: com.agendapro.app
+productName: AgendaPro
+
+# Directorios
+directories:
+  buildResources: resources
+  output: release
+
+# Desactivar asar para evitar problemas con Prisma
+asar: false
+
+# Archivos a incluir en el build
+files:
+  - dist-electron/**/*
+  - out/**/*
+  - package.json
+  - ".env"
+  - ".env.local"
+  - "node_modules/@prisma/client/**/*"
+  - "node_modules/.prisma/client/**/*"
+  - "!**/*.dll.node"
+
+# Archivos extra a copiar
+extraResources:
+  - from: prisma/
+    to: prisma/
+    filter:
+      - "**/*"
+  - from: ".env"
+    to: ".env"
+  - from: ".env.local"
+    to: ".env.local"
+
+# macOS configuration
+mac:
+  category: public.app-category.productivity
+  icon: resources/icons/icon.icns
+  darkModeSupport: true
+  # Para uso personal sin certificado de desarrollador:
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dir
+      arch:
+        - x64
+
+# DMG configuration
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+
+# Windows configuration (para futuro)
+win:
+  icon: resources/icons/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+# NSIS installer (Windows)
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icons/icon.ico
+
+# Linux configuration (para futuro)
+linux:
+  icon: resources/icons
+  category: Office
+  target:
+    - AppImage
+    - deb
+
+# Auto-update (para futuro)
+publish:
+  provider: github
+  owner: agendapro
+  repo: app

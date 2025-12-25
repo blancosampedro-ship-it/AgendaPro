@@ -1,0 +1,273 @@
+// Prisma Schema - AgendaPro
+// Motor de vencimientos basado en Reminder + NextNotification (cola explícita)
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin", "darwin-arm64", "windows"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROJECT - Contenedor de tareas
+// ═══════════════════════════════════════════════════════════════════════════
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  color       String    @default("#3B82F6")
+  icon        String?
+  sortOrder   Int       @default(0)
+  isArchived  Boolean   @default(false)
+  
+  // Sync fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deviceId    String
+  syncVersion Int       @default(0)
+  
+  tasks       Task[]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASK - Unidad de trabajo
+// Solo mantiene datos de la tarea, NO lógica de scheduler
+// ═══════════════════════════════════════════════════════════════════════════
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  notes       String?
+  
+  // Organización
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id])
+  sortOrder   Int       @default(0)
+  tags        String?   // JSON array de etiquetas
+  priority    Int       @default(0) // 0=none, 1=low, 2=medium, 3=high
+  
+  // Fechas (informativas, scheduler usa Reminder)
+  dueDate     DateTime? // Fecha límite de la tarea
+  startDate   DateTime? // Cuándo empezar a mostrar en "Próximos"
+  
+  // Recurrencia (Fase 4)
+  isRecurring     Boolean   @default(false)
+  recurrenceRule  String?   // RRULE: "FREQ=DAILY", "FREQ=WEEKLY;BYDAY=MO,WE,FR"
+  recurrenceEnd   DateTime? // Fecha fin de recurrencia (null = infinito)
+  parentTaskId    String?   // Si es instancia de tarea recurrente
+  
+  // Subtareas (Fase 4) - JSON array
+  subtasks        String?   // [{"id":"1","title":"..","done":false}]
+  
+  // Follow-up / Esperando respuesta
+  isWaitingFor    Boolean   @default(false)
+  waitingForNote  String?
+  followUpDate    DateTime?
+  
+  // Estado
+  completedAt DateTime?
+  
+  // Sync fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deviceId    String
+  syncVersion Int       @default(0)
+  
+  // Relations
+  reminders   Reminder[]
+  events      TaskEvent[]
+  
+  @@index([dueDate])
+  @@index([completedAt])
+  @@index([projectId])
+  @@index([isWaitingFor])
+  @@index([isRecurring])
+  @@index([parentTaskId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAG - Etiquetas para organizar tareas (Fase 4)
+// ═══════════════════════════════════════════════════════════════════════════
+model Tag {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  color       String    @default("#6B7280")
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deviceId    String
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REMINDER - Unidad de notificación (⭐ FUENTE DEL SCHEDULER)
+// El scheduler opera sobre Reminder, NO sobre Task
+// ═══════════════════════════════════════════════════════════════════════════
+model Reminder {
+  id          String    @id @default(uuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  // Cuándo disparar
+  fireAt              DateTime          // Momento absoluto de disparo
+  type                String            @default("due") // due | reminder | followup
+  
+  // Relativo (opcional): minutos antes de dueDate
+  relativeMinutes     Int?              // -30 = 30 min antes, null = absoluto
+  
+  // ⭐ SCHEDULER STATE (crítico para anti-duplicados)
+  lastNotifiedAt      DateTime?         // Última vez que se envió notificación
+  lastNotifiedDeviceId String?          // Qué dispositivo notificó
+  
+  // Snooze (posponer)
+  snoozedUntil        DateTime?         // Si está pospuesto, hasta cuándo
+  snoozeCount         Int               @default(0)
+  
+  // Repetición
+  repeatRule          String?           // RRULE: "FREQ=DAILY;INTERVAL=1"
+  repeatEndDate       DateTime?
+  
+  // Estado
+  dismissed           Boolean           @default(false)
+  firedAt             DateTime?         // Cuándo se disparó (histórico)
+  
+  // Sync fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  deviceId    String
+  syncVersion Int       @default(0)
+  
+  // Relation con cola
+  nextNotification    NextNotification?
+  
+  @@index([fireAt])
+  @@index([taskId])
+  @@index([snoozedUntil])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEXT_NOTIFICATION - Cola explícita del scheduler (⭐ MOTOR DE VENCIMIENTOS)
+// El scheduler consulta esta tabla para:
+//   1. Obtener el próximo timer (MIN nextFireAt WHERE lockedUntil IS NULL)
+//   2. Catch-up: procesar todos WHERE nextFireAt <= NOW()
+// ═══════════════════════════════════════════════════════════════════════════
+model NextNotification {
+  id              String    @id @default(uuid())
+  
+  reminderId      String    @unique
+  reminder        Reminder  @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  
+  // ⭐ Momento calculado del próximo disparo
+  nextFireAt      DateTime
+  
+  // Lock para evitar doble disparo (especialmente en multi-device)
+  lockedUntil     DateTime?
+  lockedByDevice  String?
+  
+  // Tracking
+  lastProcessedAt DateTime?
+  processCount    Int       @default(0) // Veces procesado (debug)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([nextFireAt])
+  @@index([lockedUntil])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASK_EVENT - Audit log / historial
+// ═══════════════════════════════════════════════════════════════════════════
+model TaskEvent {
+  id          String    @id @default(uuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  eventType   String    // created | completed | snoozed | reopened | moved | reminder_sent
+  eventData   String?   // JSON con datos adicionales
+  
+  createdAt   DateTime  @default(now())
+  deviceId    String
+  
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SETTINGS - Configuración de la app
+// ═══════════════════════════════════════════════════════════════════════════
+model Settings {
+  id                    String    @id @default("main")
+  
+  // General
+  defaultReminderTime   String    @default("09:00")
+  weekStartsOn          Int       @default(1) // 0=dom, 1=lun
+  
+  // Notificaciones
+  notificationSound     Boolean   @default(true)
+  notificationBadge     Boolean   @default(true)
+  
+  // Snooze defaults (minutos)
+  snoozeShort           Int       @default(10)
+  snoozeMedium          Int       @default(60)
+  snoozeLong            Int       @default(1440) // 24h
+  snoozeTomorrowTime    String    @default("09:00")
+  
+  // Sync
+  firebaseEnabled       Boolean   @default(false)
+  lastSyncAt            DateTime?
+  
+  // Backups
+  autoBackupEnabled     Boolean   @default(true)
+  autoBackupIntervalH   Int       @default(24)
+  lastBackupAt          DateTime?
+  
+  // UI
+  sidebarCollapsed      Boolean   @default(false)
+  theme                 String    @default("system")
+  
+  updatedAt             DateTime  @updatedAt
+  deviceId              String
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SYNC_CURSOR - Estado de sincronización
+// ═══════════════════════════════════════════════════════════════════════════
+model SyncCursor {
+  id              String    @id @default("main")
+  lastPulledAt    DateTime?
+  lastPushedAt    DateTime?
+  serverTimestamp String?
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEVICE - Registro de dispositivos (anti-duplicados)
+// ═══════════════════════════════════════════════════════════════════════════
+model Device {
+  id          String    @id @default(uuid())
+  name        String    // "MacBook Pro de Juan"
+  platform    String    // darwin | win32 | ios
+  lastSeenAt  DateTime  @default(now())
+  isCurrentDevice Boolean @default(false)
+  
+  createdAt   DateTime  @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PENDING_SYNC - Cola de cambios pendientes (Fase 6: Modo Offline)
+// ═══════════════════════════════════════════════════════════════════════════
+model PendingSync {
+  id          String    @id @default(uuid())
+  entityType  String    // task | project | tag | reminder | subtask
+  entityId    String    // ID de la entidad
+  action      String    // create | update | delete
+  data        String?   // JSON con los datos a sincronizar
+  timestamp   DateTime  @default(now())
+  retryCount  Int       @default(0)
+  
+  @@index([timestamp])
+  @@index([entityType])
+}
