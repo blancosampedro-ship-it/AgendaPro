@@ -18,7 +18,7 @@
     "dist": "npm run build && electron-builder && npm run postpack",
     "dist:mac": "npm run build && electron-builder --mac && npm run postpack:mac",
     "postpack": "echo 'Build complete'",
-    "postpack:mac": "mkdir -p release/mac/AgendaPro.app/Contents/Resources/app/node_modules/.prisma && cp -R node_modules/.prisma/client release/mac/AgendaPro.app/Contents/Resources/app/node_modules/.prisma/",
+    "postpack:mac": "mkdir -p release/mac/AgendaPro.app/Contents/Resources/app.asar.unpacked/node_modules/.prisma && cp -R node_modules/.prisma/client release/mac/AgendaPro.app/Contents/Resources/app.asar.unpacked/node_modules/.prisma/",
     "postinstall": "electron-builder install-app-deps",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

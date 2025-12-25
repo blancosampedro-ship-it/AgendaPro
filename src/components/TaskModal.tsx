@@ -355,7 +355,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   const [previewName, setPreviewName] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
   // Archivos pendientes para tareas nuevas (antes de guardar)
-  const [pendingFiles, setPendingFiles] = useState<{ filePath: string; name: string }[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<{ filePath: string; name: string; isEml?: boolean }[]>([]);
   const [pendingUrls, setPendingUrls] = useState<{ url: string; name?: string }[]>([]);
   const [pendingEmails, setPendingEmails] = useState<{ url: string; name?: string; metadata?: any }[]>([]);
   
@@ -519,12 +519,24 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
       setUploadingFile(true);
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const filePath = (file as any).path;
+        const fileName = file.name;
+        
         try {
-          await api.attachments.addFile({
-            taskId: task.id,
-            filePath: (file as any).path,
-            name: file.name.replace(/\.[^/.]+$/, ''),
-          });
+          // Si es un archivo .eml (email de Outlook), usar addEml
+          if (fileName.toLowerCase().endsWith('.eml')) {
+            await api.attachments.addEml({
+              taskId: task.id,
+              filePath: filePath,
+              name: fileName.replace(/\.eml$/i, ''),
+            });
+          } else {
+            await api.attachments.addFile({
+              taskId: task.id,
+              filePath: filePath,
+              name: fileName.replace(/\.[^/.]+$/, ''),
+            });
+          }
         } catch (error: any) {
           alert(error.message || 'Error al añadir archivo');
         }
@@ -535,9 +547,12 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
       const newPending = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const fileName = file.name;
+        const isEml = fileName.toLowerCase().endsWith('.eml');
         newPending.push({
           filePath: (file as any).path,
-          name: file.name.replace(/\.[^/.]+$/, ''),
+          name: fileName.replace(/\.[^/.]+$/, ''),
+          isEml: isEml,
         });
       }
       setPendingFiles([...pendingFiles, ...newPending]);
@@ -779,9 +794,13 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
       // Si hay adjuntos pendientes y es tarea nueva, guardarlos
       if (savedTaskId && !task && (pendingFiles.length > 0 || pendingUrls.length > 0 || pendingEmails.length > 0)) {
         try {
-          // Archivos
+          // Archivos (incluyendo .eml de Outlook)
           for (const pf of pendingFiles) {
-            await api.attachments.addFile({ taskId: savedTaskId, filePath: pf.filePath, name: pf.name });
+            if ((pf as any).isEml) {
+              await api.attachments.addEml({ taskId: savedTaskId, filePath: pf.filePath, name: pf.name });
+            } else {
+              await api.attachments.addFile({ taskId: savedTaskId, filePath: pf.filePath, name: pf.name });
+            }
           }
           // URLs
           for (const pu of pendingUrls) {
@@ -1062,7 +1081,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   return (
     <>
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
       onClick={onClose}
       onKeyDown={handleKeyDown}
     >
@@ -2409,7 +2428,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
             {showEmailInput && (
               <div className="mb-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded space-y-2">
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Arrastra un email desde Mail o pega el enlace message://
+                  Arrastra un email desde Mail o Outlook, o pega el enlace message://
                 </p>
                 <input
                   type="text"
@@ -2441,7 +2460,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
             {/* Lista de adjuntos */}
             {attachments.length === 0 && pendingFiles.length === 0 && pendingUrls.length === 0 && pendingEmails.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-2">
-                {isDraggingFile ? 'Suelta aquí...' : 'Arrastra archivos o emails aquí'}
+                {isDraggingFile ? 'Suelta aquí...' : 'Arrastra archivos o emails (Mail/Outlook) aquí'}
               </p>
             ) : (
               <div className="space-y-1">

@@ -203,6 +203,8 @@ const electronAPI = {
       ipcRenderer.invoke('attachment:add-url', data),
     addEmail: (data: { taskId: string; url: string; name?: string; metadata?: { from?: string; subject?: string; date?: string } }) => 
       ipcRenderer.invoke('attachment:add-email', data),
+    addEml: (data: { taskId: string; filePath: string; name?: string }) => 
+      ipcRenderer.invoke('attachment:add-eml', data),
     delete: (id: string) => ipcRenderer.invoke('attachment:delete', id),
     open: (id: string) => ipcRenderer.invoke('attachment:open', id),
     getContent: (id: string) => ipcRenderer.invoke('attachment:get-content', id),

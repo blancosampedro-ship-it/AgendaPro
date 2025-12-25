@@ -13,16 +13,37 @@ let prisma: PrismaClient | null = null;
 
 /**
  * Configura las rutas de Prisma para producción
- * Con asar: false, los módulos están en su ubicación normal
+ * Con asar habilitado, los módulos están en app.asar.unpacked
  */
 function configurePrismaPaths(): void {
   if (app.isPackaged) {
     const resourcesPath = process.resourcesPath;
     logger.debug(`App is packaged. Resources path: ${resourcesPath}`);
     
-    // Opción 1: Sin asar, los archivos están en Resources/app/node_modules
-    const appPath = path.join(resourcesPath, 'app');
+    // Con asar habilitado, los archivos desempaquetados están en app.asar.unpacked
+    const unpackedPath = path.join(resourcesPath, 'app.asar.unpacked');
+    
+    // Ruta al query engine en app.asar.unpacked
     let queryEnginePath = path.join(
+      unpackedPath,
+      'node_modules',
+      '.prisma',
+      'client',
+      'libquery_engine-darwin.dylib.node'
+    );
+    
+    // Alternativa para ARM64 Macs
+    const arm64EnginePath = path.join(
+      unpackedPath,
+      'node_modules',
+      '.prisma',
+      'client',
+      'libquery_engine-darwin-arm64.dylib.node'
+    );
+    
+    // Opción 2: Sin asar, los archivos están en Resources/app/node_modules
+    const appPath = path.join(resourcesPath, 'app');
+    const noAsarEnginePath = path.join(
       appPath,
       'node_modules',
       '.prisma',
@@ -30,24 +51,20 @@ function configurePrismaPaths(): void {
       'libquery_engine-darwin.dylib.node'
     );
     
-    // Opción 2: Copiados a extraResources como dot-prisma
-    const altEnginePath = path.join(
-      resourcesPath,
-      'dot-prisma',
-      'client',
-      'libquery_engine-darwin.dylib.node'
-    );
-    
-    if (fs.existsSync(queryEnginePath)) {
+    if (fs.existsSync(arm64EnginePath)) {
+      process.env.PRISMA_QUERY_ENGINE_LIBRARY = arm64EnginePath;
+      logger.info(`Query engine configured (ARM64): ${arm64EnginePath}`);
+    } else if (fs.existsSync(queryEnginePath)) {
       process.env.PRISMA_QUERY_ENGINE_LIBRARY = queryEnginePath;
-      logger.info(`Query engine configured: ${queryEnginePath}`);
-    } else if (fs.existsSync(altEnginePath)) {
-      process.env.PRISMA_QUERY_ENGINE_LIBRARY = altEnginePath;
-      logger.info(`Query engine configured (alt): ${altEnginePath}`);
+      logger.info(`Query engine configured (x64): ${queryEnginePath}`);
+    } else if (fs.existsSync(noAsarEnginePath)) {
+      process.env.PRISMA_QUERY_ENGINE_LIBRARY = noAsarEnginePath;
+      logger.info(`Query engine configured (no asar): ${noAsarEnginePath}`);
     } else {
       logger.error(`Query engine not found!`);
-      logger.error(`Tried: ${queryEnginePath}`);
-      logger.error(`Tried: ${altEnginePath}`);
+      logger.error(`Tried ARM64: ${arm64EnginePath}`);
+      logger.error(`Tried x64: ${queryEnginePath}`);
+      logger.error(`Tried no-asar: ${noAsarEnginePath}`);
     }
   }
 }

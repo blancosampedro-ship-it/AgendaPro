@@ -37,6 +37,8 @@ const ALLOWED_MIME_TYPES = [
   'image/gif',
   'image/webp',
   'image/svg+xml',
+  // Emails
+  'message/rfc822', // .eml files
 ];
 
 /**
@@ -70,6 +72,7 @@ function getMimeType(filePath: string): string {
     '.gif': 'image/gif',
     '.webp': 'image/webp',
     '.svg': 'image/svg+xml',
+    '.eml': 'message/rfc822',
   };
   return mimeTypes[ext] || 'application/octet-stream';
 }
@@ -84,6 +87,7 @@ export function getFileIcon(mimeType: string): string {
   if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return '📗';
   if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return '📙';
   if (mimeType.startsWith('text/')) return '📄';
+  if (mimeType === 'message/rfc822') return '📧';
   return '📎';
 }
 
@@ -332,6 +336,86 @@ export interface AddEmailInput {
 }
 
 /**
+ * Extrae metadatos de un archivo .eml
+ */
+function parseEmlFile(filePath: string): { subject?: string; from?: string; date?: string } {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+    const metadata: { subject?: string; from?: string; date?: string } = {};
+    
+    for (const line of lines) {
+      if (line.startsWith('Subject:')) {
+        metadata.subject = line.substring(8).trim();
+      } else if (line.startsWith('From:')) {
+        metadata.from = line.substring(5).trim();
+      } else if (line.startsWith('Date:')) {
+        metadata.date = line.substring(5).trim();
+      }
+      // Parar después de los headers (línea vacía)
+      if (line === '' && (metadata.subject || metadata.from)) {
+        break;
+      }
+    }
+    
+    return metadata;
+  } catch {
+    return {};
+  }
+}
+
+export interface AddEmlFileInput {
+  taskId: string;
+  filePath: string;
+  name?: string;
+}
+
+/**
+ * Añade un archivo .eml (email de Outlook) como adjunto
+ */
+export async function addEmlAttachment(input: AddEmlFileInput) {
+  const db = getDatabase();
+  const deviceId = getDeviceId();
+  ensureAttachmentsDir();
+
+  logger.info(`Adding .eml attachment: ${input.filePath} for task ${input.taskId}`);
+
+  // Verificar que el archivo existe
+  if (!input.filePath || !fs.existsSync(input.filePath)) {
+    throw new Error('El archivo .eml no existe');
+  }
+
+  // Extraer metadatos del email
+  const metadata = parseEmlFile(input.filePath);
+  
+  // Copiar archivo localmente
+  const stats = fs.statSync(input.filePath);
+  const uniqueName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.eml`;
+  const destPath = path.join(ATTACHMENTS_DIR, uniqueName);
+  await fs.promises.copyFile(input.filePath, destPath);
+
+  const attachment = await db.attachment.create({
+    data: {
+      taskId: input.taskId,
+      type: 'email',
+      name: input.name || metadata.subject || 'Email de Outlook',
+      filePath: uniqueName,
+      mimeType: 'message/rfc822',
+      size: stats.size,
+      metadata: JSON.stringify(metadata),
+      deviceId,
+    },
+  });
+
+  logger.info(`EML attachment created: ${attachment.id} for task ${input.taskId}`);
+  
+  // Subir a la nube en background
+  uploadToCloudBackground(attachment.id, destPath, 'message/rfc822');
+  
+  return attachment;
+}
+
+/**
  * Añade un enlace a email a una tarea
  */
 export async function addEmailAttachment(input: AddEmailInput) {
@@ -368,12 +452,26 @@ export async function openEmail(attachmentId: string): Promise<boolean> {
     where: { id: attachmentId },
   });
 
-  if (!attachment || attachment.type !== 'email' || !attachment.url) {
+  if (!attachment || attachment.type !== 'email') {
     return false;
   }
 
-  await shell.openExternal(attachment.url);
-  return true;
+  // Si tiene URL (message:// o outlook://), abrirla
+  if (attachment.url) {
+    await shell.openExternal(attachment.url);
+    return true;
+  }
+  
+  // Si es un archivo .eml, abrirlo con la app predeterminada
+  if (attachment.filePath) {
+    const fullPath = path.join(ATTACHMENTS_DIR, attachment.filePath);
+    if (fs.existsSync(fullPath)) {
+      await shell.openPath(fullPath);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

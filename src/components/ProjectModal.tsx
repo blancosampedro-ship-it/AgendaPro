@@ -112,6 +112,12 @@ export function ProjectModal({ project, onClose, onSave }: ProjectModalProps) {
     try {
       const api = (window as any).electronAPI;
       
+      if (!api) {
+        setError('Error: La aplicación debe ejecutarse desde Electron, no desde el navegador.');
+        setSaving(false);
+        return;
+      }
+      
       if (isEditing && project) {
         await api.updateProject(project.id, {
           name: name.trim(),
@@ -136,7 +142,7 @@ export function ProjectModal({ project, onClose, onSave }: ProjectModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
       <div 
         className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}

@@ -176,15 +176,9 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
     
     const handleNewProject = async () => {
       console.log('TaskList: Received new-project event');
-      const name = prompt('Nombre del proyecto:');
-      if (!name?.trim()) return;
-      
-      try {
-        await api.createProject({ name: name.trim() });
-        await fetchProjects();
-      } catch (error) {
-        console.error('Error creating project:', error);
-      }
+      // Usar el modal en lugar de prompt() que no está soportado en Electron
+      setEditingProject(null);
+      setShowProjectModal(true);
     };
     
     api.on('tasks:refresh', handleRefresh);
@@ -324,11 +318,13 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
   };
 
   const handleCreateProject = () => {
+    console.log('handleCreateProject called - opening modal');
     setEditingProject(null);
     setShowProjectModal(true);
   };
 
   const handleEditProject = (project: Project) => {
+    console.log('handleEditProject called for:', project.name);
     setEditingProject(project);
     setShowProjectModal(true);
   };
@@ -466,7 +462,11 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
         {/* Botón nuevo proyecto */}
         <div className="p-2 border-t border-gray-200 dark:border-gray-700">
           <button
-            onClick={handleCreateProject}
+            type="button"
+            onClick={() => {
+              console.log('CLICK en Nuevo Proyecto');
+              handleCreateProject();
+            }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           >
             <span>+</span>

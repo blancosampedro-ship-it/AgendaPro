@@ -9,8 +9,15 @@ directories:
   buildResources: resources
   output: release
 
-# Desactivar asar para evitar problemas con Prisma
-asar: false
+# Habilitar asar con exclusiones para Prisma y binarios nativos
+asar: true
+asarUnpack:
+  - "node_modules/.prisma/**/*"
+  - "node_modules/@prisma/**/*"
+  - "node_modules/@libsql/**/*"
+  - "**/*.node"
+  - "**/*.dylib.node"
+  - "**/*.dll.node"
 
 # Archivos a incluir en el build
 files:
@@ -20,9 +27,15 @@ files:
   - package.json
   - ".env"
   - ".env.local"
-  - "node_modules/@prisma/client/**/*"
-  - "node_modules/.prisma/client/**/*"
-  - "!**/*.dll.node"
+  - "node_modules/**/*"
+  - "!**/node_modules/**/*.md"
+  - "!**/node_modules/**/*.ts"
+  - "!**/node_modules/**/*.map"
+  - "!**/node_modules/**/test/**"
+  - "!**/node_modules/**/tests/**"
+  - "!**/node_modules/**/__tests__/**"
+  - "!**/node_modules/**/docs/**"
+  - "!**/node_modules/**/.github/**"
 
 # Archivos extra a copiar
 extraResources:

@@ -392,6 +392,19 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // Handler para archivos .eml (Outlook)
+  ipcMain.handle('attachment:add-eml', async (_event, data: { taskId: string; filePath: string; name?: string }) => {
+    try {
+      const { addEmlAttachment } = await import('../services/attachmentService');
+      const attachment = await addEmlAttachment(data);
+      syncToFirestoreBackground();
+      return attachment;
+    } catch (error) {
+      logger.error('ATTACHMENT_ADD_EML error:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle('attachment:delete', async (_event, id: string) => {
     try {
       const { deleteAttachment } = await import('../services/attachmentService');
