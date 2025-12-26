@@ -119,7 +119,7 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
     y: Math.round((screenHeight - popupHeight) / 2) - 50,
     frame: false,
     transparent: true,
-    alwaysOnTop: false, // Permitir que otros windows estén encima
+    alwaysOnTop: true, // Mantener encima de mainWindow
     skipTaskbar: false, // Mostrar en dock para poder restaurar
     resizable: false,
     minimizable: true,
@@ -141,6 +141,7 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
 
   overdueWindow.once('ready-to-show', () => {
     if (overdueWindow) {
+      overdueWindow.setAlwaysOnTop(true, 'floating');
       overdueWindow.show();
       overdueWindow.focus();
     }

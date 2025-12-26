@@ -260,8 +260,14 @@ export async function isOutlookAvailable(): Promise<boolean> {
 
 /**
  * Genera URL para abrir el email en Outlook
- * Outlook para Mac soporta: outlook://open?id=<id>
+ * Usamos subject, sender y date como identificadores permanentes
+ * ya que el message id de Outlook es volátil (cambia al reiniciar)
  */
-export function getOutlookUrl(emailId: string): string {
-  return `outlook://open?id=${encodeURIComponent(emailId)}`;
+export function getOutlookUrl(email: OutlookEmail): string {
+  // Codificamos los parámetros de búsqueda permanentes
+  const params = new URLSearchParams();
+  params.set('subject', email.subject);
+  params.set('sender', email.sender);
+  params.set('date', email.dateSent);
+  return `outlook://search?${params.toString()}`;
 }

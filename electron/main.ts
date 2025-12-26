@@ -95,6 +95,11 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       closeSplashWindow();
       mainWindow.show();
+      
+      // Mostrar popup de vencidas después de que mainWindow se muestre
+      setTimeout(() => {
+        showOverduePopup();
+      }, 500);
     }, 2000); // 2 segundos máximo para el splash
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -133,9 +138,6 @@ app.whenReady().then(async () => {
 
     const elapsed = Date.now() - startTime;
     logger.always(`AgendaPro ready! (${elapsed}ms)`);
-
-    // Mostrar tareas vencidas sin delay artificial
-    showOverduePopup();
 
   } catch (error) {
     logger.error('Failed to initialize app:', error);

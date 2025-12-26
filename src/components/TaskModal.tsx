@@ -366,6 +366,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
     contactName: string;
     isFromMe: boolean;
     dateSent: string;
+    sender: string; // email del remitente para búsqueda permanente
   }[]>([]);
   const [capturingOutlook, setCapturingOutlook] = useState(false);
   
@@ -691,7 +692,12 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
       }
 
       const email = result.email;
-      const outlookUrl = `outlook://open?id=${encodeURIComponent(email.id)}`;
+      // URL con identificadores permanentes (subject, sender, date) en lugar del ID volátil
+      const params = new URLSearchParams();
+      params.set('subject', email.subject);
+      params.set('sender', email.sender);
+      params.set('date', email.dateSent);
+      const outlookUrl = `outlook://search?${params.toString()}`;
       
       // Si es tarea existente, guardar directamente
       if (task?.id) {
@@ -722,6 +728,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
           contactName: email.isFromMe ? (email.recipientNames[0] || email.recipients[0] || '') : (email.senderName || email.sender),
           isFromMe: email.isFromMe,
           dateSent: email.dateSent,
+          sender: email.sender, // guardamos el sender para búsqueda permanente
         }]);
       }
     } catch (error: any) {
@@ -906,7 +913,12 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
           }
           // Emails de Outlook
           for (const pe of pendingOutlookEmails) {
-            const outlookUrl = `outlook://open?id=${encodeURIComponent(pe.id)}`;
+            // URL con identificadores permanentes (subject, sender, date)
+            const params = new URLSearchParams();
+            params.set('subject', pe.subject);
+            params.set('sender', pe.sender);
+            params.set('date', pe.dateSent);
+            const outlookUrl = `outlook://search?${params.toString()}`;
             await api.attachments.addEmail({
               taskId: savedTaskId,
               url: outlookUrl,
@@ -1133,17 +1145,22 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
         locationId: commitmentType === 'meeting' ? selectedLocationId : null,
       };
 
-      // Si tiene fecha, verificar conflictos
+      // Si tiene fecha, verificar conflictos (pero no bloquear si falla)
       if (dueDateFull && api.schedule?.analyze) {
-        const analysis = await api.schedule.analyze(dueDateFull, task?.id);
-        
-        // Si hay conflictos o día muy cargado, mostrar modal
-        if (analysis.conflicts.hasConflicts || analysis.dayLoad.level === 'heavy') {
-          setScheduleAnalysis(analysis);
-          setPendingTaskData(taskData);
-          setShowConflictModal(true);
-          setSaving(false);
-          return;
+        try {
+          const analysis = await api.schedule.analyze(dueDateFull, task?.id);
+          
+          // Si hay conflictos o día muy cargado, mostrar modal
+          if (analysis && analysis.conflicts?.hasConflicts || analysis?.dayLoad?.level === 'heavy') {
+            setScheduleAnalysis(analysis);
+            setPendingTaskData(taskData);
+            setShowConflictModal(true);
+            setSaving(false);
+            return;
+          }
+        } catch (scheduleError) {
+          // Si falla el análisis, continuar guardando sin bloquear
+          console.warn('Schedule analysis failed, saving anyway:', scheduleError);
         }
       }
 
@@ -1193,7 +1210,12 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
     <>
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
-      onClick={onClose}
+      onMouseDown={(e) => {
+        // Solo cerrar si el click fue directamente en el overlay, no al soltar después de arrastrar
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
       onKeyDown={handleKeyDown}
     >
       <div
@@ -2506,10 +2528,10 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
                   type="button"
                   onClick={handleCaptureFromOutlook}
                   disabled={capturingOutlook}
-                  className={`px-2 py-1 text-xs rounded ${capturingOutlook ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300'} disabled:opacity-50`}
+                  className={`px-2 py-1 text-xs rounded bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 disabled:opacity-50`}
                   title="Capturar email de Outlook (selecciona un email en Outlook)"
                 >
-                  📧
+                  <span className="font-semibold">O</span>
                 </button>
               </div>
             </div>

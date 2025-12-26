@@ -76,7 +76,7 @@ mac:
   target:
     - target: dir
       arch:
-        - x64
+        - arm64
 
 # DMG configuration
 dmg:
@@ -91,27 +91,7 @@ dmg:
     width: 540
     height: 380
 
-# Windows configuration (para futuro)
-win:
-  icon: resources/icons/icon.ico
-  target:
-    - target: nsis
-      arch:
-        - x64
-
-# NSIS installer (Windows)
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  installerIcon: resources/icons/icon.ico
-
-# Linux configuration (para futuro)
-linux:
-  icon: resources/icons
-  category: Office
-  target:
-    - AppImage
-    - deb
+# Windows y Linux eliminados - solo macOS Apple Silicon
 
 # Auto-update (para futuro)
 publish:

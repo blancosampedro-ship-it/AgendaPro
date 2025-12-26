@@ -7,11 +7,15 @@
 import { app, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { getDatabase } from '../database/connection';
 import { getDeviceId } from '../utils/deviceId';
 import { logger } from '../utils/logger';
 import { uploadAttachment, downloadAttachment, deleteAttachmentFromStorage } from '../firebase/storageService';
 import { getCurrentUser } from '../firebase/authService';
+
+const execAsync = promisify(exec);
 
 // Carpeta de adjuntos
 const ATTACHMENTS_DIR = path.join(app.getPath('userData'), 'attachments');
@@ -456,7 +460,151 @@ export async function openEmail(attachmentId: string): Promise<boolean> {
     return false;
   }
 
-  // Si tiene URL (message:// o outlook://), abrirla
+  // Si tiene URL de Outlook (outlook://), usar AppleScript para abrirlo
+  if (attachment.url && attachment.url.startsWith('outlook://')) {
+    try {
+      const url = new URL(attachment.url);
+      
+      // Nuevo formato: outlook://search?subject=...&sender=...&date=...
+      if (url.pathname === '//search' || attachment.url.includes('outlook://search?')) {
+        const subject = url.searchParams.get('subject') || '';
+        const sender = url.searchParams.get('sender') || '';
+        const dateStr = url.searchParams.get('date') || '';
+        
+        // Buscar el email por subject, sender y fecha usando AppleScript
+        // Esto funciona aunque Outlook se haya reiniciado
+        // OPTIMIZADO: Busca por nombre de carpeta (compatible con idiomas)
+        const script = `tell application "Microsoft Outlook"
+activate
+set foundMsg to missing value
+repeat with f in (every mail folder)
+  set fname to name of f
+  if fname is "Bandeja de entrada" or fname is "INBOX" or fname is "Inbox" or fname is "Elementos enviados" or fname is "Sent" or fname is "Sent Items" then
+    try
+      set msgs to (every message of f whose subject is "${subject.replace(/"/g, '\\"')}" and (address of sender) is "${sender.replace(/"/g, '\\"')}")
+      if (count of msgs) > 0 then
+        set foundMsg to item 1 of msgs
+        exit repeat
+      end if
+    end try
+  end if
+end repeat
+if foundMsg is not missing value then
+  open foundMsg
+  return "OK"
+end if
+return "NOT_FOUND"
+end tell`;
+        
+        const { stdout } = await execAsync(`echo '${script.replace(/'/g, "'\\''")}' | osascript`);
+        
+        if (stdout.trim() === 'OK') {
+          logger.info(`Opened Outlook email by search: ${subject}`);
+          return true;
+        } else {
+          logger.warn(`Email not found in Outlook: ${subject}`);
+          // Fallback: intentar buscar solo por subject si no encontró exacto
+          // OPTIMIZADO: Busca por nombre de carpeta (compatible con idiomas)
+          const fallbackScript = `tell application "Microsoft Outlook"
+activate
+set foundMsg to missing value
+repeat with f in (every mail folder)
+  set fname to name of f
+  if fname is "Bandeja de entrada" or fname is "INBOX" or fname is "Inbox" or fname is "Elementos enviados" or fname is "Sent" or fname is "Sent Items" then
+    try
+      set msgs to (every message of f whose subject contains "${subject.substring(0, 50).replace(/"/g, '\\"')}")
+      if (count of msgs) > 0 then
+        set foundMsg to item 1 of msgs
+        exit repeat
+      end if
+    end try
+  end if
+end repeat
+if foundMsg is not missing value then
+  open foundMsg
+  return "OK"
+end if
+return "NOT_FOUND"
+end tell`;
+          
+          const { stdout: fallbackOut } = await execAsync(`echo '${fallbackScript.replace(/'/g, "'\\''")}' | osascript`);
+          if (fallbackOut.trim() === 'OK') {
+            logger.info(`Opened Outlook email by subject fallback: ${subject}`);
+            return true;
+          }
+        }
+      }
+      
+      // Formato antiguo: outlook://open?id=XXXXX (retrocompatibilidad)
+      const emailId = url.searchParams.get('id');
+      if (emailId) {
+        // Intentar abrir por ID (puede fallar si Outlook se reinició)
+        const script = `tell application "Microsoft Outlook"
+activate
+try
+  set theMessage to message id ${emailId}
+  open theMessage
+  return "OK"
+on error
+  return "NOT_FOUND"
+end try
+end tell`;
+        
+        const { stdout } = await execAsync(`echo '${script}' | osascript`);
+        if (stdout.trim() === 'OK') {
+          logger.info(`Opened Outlook email with ID: ${emailId}`);
+          return true;
+        } else {
+          // ID ya no es válido, buscar por metadata si existe
+          if (attachment.metadata) {
+            const meta = typeof attachment.metadata === 'string' 
+              ? JSON.parse(attachment.metadata) 
+              : attachment.metadata;
+            
+            if (meta.subject) {
+              // OPTIMIZADO: Sale inmediatamente al encontrar el email
+              const searchScript = `tell application "Microsoft Outlook"
+activate
+try
+  set allFolders to every mail folder
+  repeat with f in allFolders
+    try
+      set msgs to (every message of f whose subject is "${(meta.subject as string).replace(/"/g, '\\"')}")
+      if (count of msgs) > 0 then
+        open item 1 of msgs
+        return "OK"
+      end if
+    end try
+  end repeat
+end try
+return "NOT_FOUND"
+end tell`;
+              
+              const { stdout: searchOut } = await execAsync(`echo '${searchScript.replace(/'/g, "'\\''")}' | osascript`);
+              if (searchOut.trim() === 'OK') {
+                logger.info(`Opened Outlook email by metadata subject: ${meta.subject}`);
+                return true;
+              }
+            }
+          }
+          
+          logger.error('Email ID no longer valid and no metadata to search by');
+          return false;
+        }
+      }
+    } catch (error) {
+      logger.error('Error opening Outlook email via AppleScript:', error);
+      // Fallback: intentar abrir la URL directamente (por si acaso)
+      try {
+        await shell.openExternal(attachment.url);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  // Si tiene URL (message:// para Mail.app), abrirla directamente
   if (attachment.url) {
     await shell.openExternal(attachment.url);
     return true;
