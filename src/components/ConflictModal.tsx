@@ -114,7 +114,7 @@ export function ConflictModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-[110]"
       onClick={onCancel}
     >
       <div
