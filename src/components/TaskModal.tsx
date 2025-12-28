@@ -342,6 +342,20 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   } | null>(null);
   const [showAISuggestion, setShowAISuggestion] = useState(false);
   
+  // Detección de tareas similares/duplicadas
+  interface SimilarTask {
+    id: string;
+    title: string;
+    dueDate: string | null;
+    projectName: string | null;
+    similarity: number;
+  }
+  const [similarTasks, setSimilarTasks] = useState<SimilarTask[]>([]);
+  const [searchingSimilar, setSearchingSimilar] = useState(false);
+  const [showSimilarPanel, setShowSimilarPanel] = useState(true);
+  const [ignoredSimilarIds, setIgnoredSimilarIds] = useState<Set<string>>(new Set());
+  const [similarSearchTimeout, setSimilarSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  
   // Adjuntos
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -489,6 +503,15 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
     
     updateDefaultReminders();
   }, [commitmentType, task?.id, addReminder]);
+
+  // Cleanup del timeout de búsqueda de similares al desmontar
+  useEffect(() => {
+    return () => {
+      if (similarSearchTimeout) {
+        clearTimeout(similarSearchTimeout);
+      }
+    };
+  }, [similarSearchTimeout]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // FUNCIONES DE ADJUNTOS
@@ -954,11 +977,79 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   // ASISTENTE IA - Funciones de detección y análisis
   // ═══════════════════════════════════════════════════════════════════════
   
+  // Búsqueda de tareas similares LOCAL (instantánea, sin IA)
+  const searchSimilarTasks = async (searchTitle: string) => {
+    const api = (window as any).electronAPI;
+    if (!api?.ai?.findSimilarLocal || !api?.getAllTasks) return;
+    
+    try {
+      // NO mostrar spinner - es instantáneo
+      // setSearchingSimilar(true);
+      
+      // Obtener tareas pendientes
+      const allTasks = await api.getAllTasks();
+      const pendingTasks = allTasks
+        .filter((t: any) => !t.completedAt && t.id !== task?.id) // Excluir completadas y la tarea actual (si editando)
+        .map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          dueDate: t.dueDate,
+          projectName: t.project?.name || null
+        }));
+      
+      if (pendingTasks.length === 0) {
+        setSimilarTasks([]);
+        return;
+      }
+      
+      // Usar búsqueda LOCAL instantánea
+      const result = api.ai.findSimilarLocal(searchTitle, pendingTasks);
+      
+      // Es síncrono pero devuelve Promise, await
+      const resolved = await result;
+      
+      if (resolved.success && resolved.similar) {
+        // Filtrar las ignoradas
+        const filtered = resolved.similar.filter((s: SimilarTask) => !ignoredSimilarIds.has(s.id));
+        setSimilarTasks(filtered);
+        if (filtered.length > 0) {
+          setShowSimilarPanel(true);
+        }
+      } else {
+        setSimilarTasks([]);
+      }
+    } catch (error) {
+      console.error('Error searching similar tasks:', error);
+      setSimilarTasks([]);
+    }
+  };
+  
   // Detección básica al escribir (sin IA, instantánea)
   const handleTitleChange = async (newTitle: string) => {
     setTitle(newTitle);
     
-    // Detección básica disponible en creación y edición
+    // Limpiar búsqueda de similares si el título es muy corto
+    if (newTitle.length < 3) {
+      setSimilarTasks([]);
+      setShowAISuggestion(false);
+      // Cancelar búsqueda pendiente
+      if (similarSearchTimeout) {
+        clearTimeout(similarSearchTimeout);
+        setSimilarSearchTimeout(null);
+      }
+      return;
+    }
+    
+    // Debounce reducido a 150ms ya que la búsqueda es local e instantánea
+    if (similarSearchTimeout) {
+      clearTimeout(similarSearchTimeout);
+    }
+    const timeout = setTimeout(() => {
+      searchSimilarTasks(newTitle);
+    }, 150);
+    setSimilarSearchTimeout(timeout);
+    
+    // Detección básica disponible en creación y edición (solo si >= 6 chars)
     if (newTitle.length < 6) {
       setShowAISuggestion(false);
       return;
@@ -990,6 +1081,12 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
     } catch (error) {
       console.error('Error in basic parse:', error);
     }
+  };
+  
+  // Ignorar una tarea similar
+  const ignoreSimilarTask = (taskId: string) => {
+    setIgnoredSimilarIds(prev => new Set(prev).add(taskId));
+    setSimilarTasks(prev => prev.filter(t => t.id !== taskId));
   };
   
   // Aplicar sugerencia básica
@@ -1413,6 +1510,96 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
               </div>
             )}
           </div>
+
+          {/* ═══════════════════════════════════════════════════════════════════════ */}
+          {/* PANEL DE TAREAS SIMILARES/DUPLICADAS */}
+          {/* ═══════════════════════════════════════════════════════════════════════ */}
+          {showSimilarPanel && similarTasks.length > 0 && (
+            <div className="border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-500">⚠️</span>
+                  <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                    Posibles tareas similares
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSimilarPanel(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
+                  title="Cerrar panel"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="space-y-2">
+                {similarTasks.map((similar) => (
+                  <div
+                    key={similar.id}
+                    className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-lg px-3 py-2 border border-amber-100 dark:border-amber-800"
+                  >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {similar.title}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            similar.similarity >= 80 
+                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' 
+                              : similar.similarity >= 60 
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                          }`}>
+                            {similar.similarity}% similar
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {similar.projectName && (
+                            <span>📁 {similar.projectName}</span>
+                          )}
+                          {similar.dueDate && (
+                            <span>📅 {new Date(similar.dueDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Cerrar este modal primero
+                            onClose();
+                            // Pequeño delay para asegurar que el modal se cierra antes de abrir el otro
+                            setTimeout(() => {
+                              // Emitir evento IPC para abrir la tarea en modo edición
+                              const api = (window as any).electronAPI;
+                              if (api?.emit) {
+                                api.emit('task:edit', similar.id);
+                              }
+                            }, 100);
+                          }}
+                          className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                          title="Ver esta tarea existente"
+                        >
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => ignoreSimilarTask(similar.id)}
+                          className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                          title="Ignorar esta sugerencia"
+                        >
+                          Ignorar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    💡 Puedes continuar creando la tarea si no es duplicada
+                  </p>
+                </div>
+            </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════════════════════════ */}
           {/* CALL-SPECIFIC FIELDS */}

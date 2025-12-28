@@ -52,6 +52,19 @@ export function setupIpcHandlers(): void {
   logger.debug('Setting up IPC handlers...');
 
   // ═══════════════════════════════════════════════════════════════════════
+  // RENDERER EMIT HANDLER (para comunicación entre componentes del renderer)
+  // ═══════════════════════════════════════════════════════════════════════
+  
+  ipcMain.on('renderer:emit', (event, channel: string, ...args: unknown[]) => {
+    // Reenviar el evento a todos los renderers (incluyendo el que lo envió)
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, ...args);
+      logger.debug(`Renderer emit: ${channel}`, args);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // WINDOW HANDLERS
   // ═══════════════════════════════════════════════════════════════════════
   
@@ -711,6 +724,28 @@ export function setupIpcHandlers(): void {
     } catch (error) {
       logger.error('AI_PARSE_TASK_DEEP error:', error);
       return { success: false, error: 'Error al analizar con IA' };
+    }
+  });
+
+  // Buscar tareas similares/duplicadas (LOCAL - instantáneo)
+  ipcMain.handle('ai:find-similar-local', async (_event, newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) => {
+    try {
+      const { findSimilarTasksLocal } = await import('../services/aiService');
+      return findSimilarTasksLocal(newTitle, pendingTasks);
+    } catch (error) {
+      logger.error('AI_FIND_SIMILAR_LOCAL error:', error);
+      return { success: true, similar: [] };
+    }
+  });
+
+  // Buscar tareas similares/duplicadas (IA - más preciso pero lento)
+  ipcMain.handle('ai:find-similar', async (_event, newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) => {
+    try {
+      const { findSimilarTasks } = await import('../services/aiService');
+      return await findSimilarTasks(newTitle, pendingTasks);
+    } catch (error) {
+      logger.error('AI_FIND_SIMILAR error:', error);
+      return { success: false, error: 'Error al buscar similares' };
     }
   });
 

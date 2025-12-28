@@ -3,7 +3,7 @@
  * Gestiona la ventana principal de la aplicación
  */
 
-import { BrowserWindow, shell, Menu, MenuItemConstructorOptions, app } from 'electron';
+import { BrowserWindow, shell, Menu, MenuItemConstructorOptions, app, nativeImage } from 'electron';
 import * as path from 'path';
 import { logger } from '../utils/logger';
 
@@ -16,6 +16,19 @@ let forceQuit = false; // Bandera para forzar cierre
 export function setForceQuit(value: boolean): void {
   forceQuit = value;
   logger.debug(`Force quit set to: ${value}`);
+}
+
+/**
+ * Obtiene la ruta del icono de la app
+ */
+function getIconPath(): string {
+  // En desarrollo: resources/icons/icon.png
+  // En producción: dentro del bundle
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    return path.join(process.cwd(), 'resources', 'icons', 'icon.png');
+  }
+  return path.join(process.resourcesPath, 'icons', 'icon.icns');
 }
 
 // Configuración de ventana
@@ -39,8 +52,19 @@ export async function createMainWindow(devServerUrl: string | null): Promise<Bro
   const preloadPath = path.join(__dirname, '../preload.js');
   logger.debug(`Preload path: ${preloadPath}`);
 
+  // Cargar icono de la app
+  const iconPath = getIconPath();
+  let appIcon;
+  try {
+    appIcon = nativeImage.createFromPath(iconPath);
+    logger.debug(`App icon loaded from: ${iconPath}`);
+  } catch (error) {
+    logger.warn('Could not load app icon:', error);
+  }
+
   mainWindow = new BrowserWindow({
     ...WINDOW_CONFIG,
+    icon: appIcon,
     webPreferences: {
       preload: preloadPath,
       // ⚠️ SEGURIDAD: Configuración estricta

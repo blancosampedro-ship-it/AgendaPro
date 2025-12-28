@@ -237,6 +237,17 @@ export interface ElectronAPI {
     // Asistente de creación de tareas (Hybrid)
     parseTaskBasic: (input: string) => Promise<{ success: boolean; parsed?: ParsedTaskInput; error?: string }>;
     parseTaskDeep: (input: string, options?: { generateSubtasks?: boolean }) => Promise<{ success: boolean; parsed?: ParsedTaskInput; error?: string }>;
+    // Detección de tareas similares/duplicadas (LOCAL - instantáneo)
+    findSimilarLocal: (newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) => Promise<{ 
+      success: boolean; 
+      similar: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null; similarity: number }>; 
+    }>;
+    // Detección de tareas similares/duplicadas (IA - más preciso pero lento)
+    findSimilar: (newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) => Promise<{ 
+      success: boolean; 
+      similar?: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null; similarity: number }>; 
+      error?: string 
+    }>;
   };
 
   // Contacts / Team

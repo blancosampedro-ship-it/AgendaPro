@@ -10,7 +10,7 @@
  * - Manejar lifecycle de la app
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage } from 'electron';
 import * as path from 'path';
 import { createMainWindow, getMainWindow, showMainWindow, setForceQuit } from './windows/mainWindow';
 import { createSplashWindow, closeSplashWindow, updateSplashStatus } from './windows/splashWindow';
@@ -65,6 +65,22 @@ app.whenReady().then(async () => {
     // FASE 0: Splash screen INMEDIATO (aparece en ~100ms)
     // ═══════════════════════════════════════════════════════════════════════
     createSplashWindow();
+    
+    // Configurar icono del dock (macOS)
+    if (process.platform === 'darwin') {
+      try {
+        const iconPath = app.isPackaged 
+          ? path.join(process.resourcesPath, 'icons', 'icon.icns')
+          : path.join(process.cwd(), 'resources', 'icons', 'icon.png');
+        const dockIcon = nativeImage.createFromPath(iconPath);
+        if (!dockIcon.isEmpty()) {
+          app.dock.setIcon(dockIcon);
+          logger.debug(`Dock icon set from: ${iconPath}`);
+        }
+      } catch (error) {
+        logger.warn('Could not set dock icon:', error);
+      }
+    }
     
     // ═══════════════════════════════════════════════════════════════════════
     // FASE 1: Inicialización mínima en PARALELO

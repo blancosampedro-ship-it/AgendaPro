@@ -178,6 +178,11 @@ const electronAPI = {
     parseTaskBasic: (input: string) => ipcRenderer.invoke('ai:parse-task-basic', input),
     parseTaskDeep: (input: string, options?: { generateSubtasks?: boolean }) => 
       ipcRenderer.invoke('ai:parse-task-deep', input, options),
+    // Detección de tareas similares/duplicadas
+    findSimilarLocal: (newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) =>
+      ipcRenderer.invoke('ai:find-similar-local', newTitle, pendingTasks),
+    findSimilar: (newTitle: string, pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>) =>
+      ipcRenderer.invoke('ai:find-similar', newTitle, pendingTasks),
   },
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -306,8 +311,26 @@ const electronAPI = {
   },
 
   // ═══════════════════════════════════════════════════════════════════════
-  // EVENT LISTENERS (Renderer escucha eventos de Main)
+  // EVENT EMITTER (Renderer envía eventos al mismo Renderer via Main)
   // ═══════════════════════════════════════════════════════════════════════
+  emit: (channel: string, ...args: unknown[]) => {
+    // Lista blanca de canales permitidos para emitir
+    const validChannels: string[] = [
+      'task:edit',
+      'new-task',
+      'new-project',
+      'tasks:refresh',
+      'navigate',
+    ];
+    
+    if (validChannels.includes(channel)) {
+      // Enviar al main y que el main lo reenvíe a todos los renderers
+      ipcRenderer.send('renderer:emit', channel, ...args);
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // EVENT LISTENERS (Renderer escucha eventos de Main)
   // ═══════════════════════════════════════════════════════════════════════
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     // Lista blanca de canales permitidos para escuchar

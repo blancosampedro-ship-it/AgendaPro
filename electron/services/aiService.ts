@@ -712,3 +712,296 @@ Reglas:
     return { success: false, error: error.message || 'Error al analizar con IA' };
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DETECCIÓN DE TAREAS SIMILARES/DUPLICADAS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface SimilarTask {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  projectName: string | null;
+  similarity: number; // 0-100
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// BÚSQUEDA LOCAL DE TAREAS SIMILARES (INSTANTÁNEA)
+// ═══════════════════════════════════════════════════════════════════════
+
+// Stopwords en español para ignorar
+const STOPWORDS = new Set([
+  'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+  'de', 'del', 'al', 'a', 'en', 'con', 'por', 'para', 'sin',
+  'sobre', 'entre', 'hacia', 'desde', 'durante', 'mediante',
+  'y', 'o', 'ni', 'que', 'como', 'pero', 'si', 'no',
+  'mi', 'tu', 'su', 'mis', 'tus', 'sus', 'este', 'esta', 'esto',
+  'ese', 'esa', 'eso', 'aquel', 'aquella', 'aquello',
+  'ser', 'estar', 'hacer', 'tener', 'ir', 'ver',
+  'muy', 'más', 'menos', 'ya', 'aún', 'todavía',
+]);
+
+/**
+ * Normaliza texto para comparación
+ */
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+    .replace(/[^\w\s]/g, ' ') // Quitar puntuación
+    .trim();
+}
+
+/**
+ * Tokeniza texto en palabras significativas
+ */
+function tokenize(text: string): string[] {
+  const normalized = normalizeText(text);
+  return normalized
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !STOPWORDS.has(word));
+}
+
+/**
+ * Calcula distancia de Levenshtein entre dos strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Verifica si dos palabras son similares (fuzzy match)
+ */
+function wordsAreSimilar(word1: string, word2: string, threshold = 0.75): boolean {
+  if (word1 === word2) return true;
+  if (Math.abs(word1.length - word2.length) > 3) return false;
+  
+  const maxLen = Math.max(word1.length, word2.length);
+  const distance = levenshteinDistance(word1, word2);
+  const similarity = 1 - (distance / maxLen);
+  
+  return similarity >= threshold;
+}
+
+/**
+ * Calcula similitud entre dos conjuntos de tokens con fuzzy matching
+ */
+function calculateSimilarity(tokens1: string[], tokens2: string[]): number {
+  if (tokens1.length === 0 || tokens2.length === 0) return 0;
+
+  let matches = 0;
+  const usedIndices = new Set<number>();
+
+  for (const t1 of tokens1) {
+    for (let i = 0; i < tokens2.length; i++) {
+      if (usedIndices.has(i)) continue;
+      if (wordsAreSimilar(t1, tokens2[i])) {
+        matches++;
+        usedIndices.add(i);
+        break;
+      }
+    }
+  }
+
+  // Similitud Jaccard modificada
+  const union = tokens1.length + tokens2.length - matches;
+  const jaccard = union > 0 ? matches / union : 0;
+  
+  // Bonus si hay más matches absolutos
+  const matchRatio = matches / Math.min(tokens1.length, tokens2.length);
+  
+  // Combinar métricas (ponderado)
+  const score = (jaccard * 0.4 + matchRatio * 0.6) * 100;
+  
+  return Math.round(score);
+}
+
+/**
+ * Busca tareas similares LOCALMENTE (instantáneo, sin IA)
+ */
+export function findSimilarTasksLocal(
+  newTitle: string,
+  pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>
+): { success: boolean; similar: SimilarTask[] } {
+  try {
+    if (!newTitle || newTitle.length < 3) {
+      return { success: true, similar: [] };
+    }
+
+    if (!pendingTasks || pendingTasks.length === 0) {
+      return { success: true, similar: [] };
+    }
+
+    const newTokens = tokenize(newTitle);
+    
+    if (newTokens.length === 0) {
+      return { success: true, similar: [] };
+    }
+
+    const results: SimilarTask[] = [];
+
+    for (const task of pendingTasks) {
+      const taskTokens = tokenize(task.title);
+      if (taskTokens.length === 0) continue;
+
+      const similarity = calculateSimilarity(newTokens, taskTokens);
+
+      // Solo incluir si similitud >= 40%
+      if (similarity >= 40) {
+        results.push({
+          id: task.id,
+          title: task.title,
+          dueDate: task.dueDate,
+          projectName: task.projectName,
+          similarity
+        });
+      }
+    }
+
+    // Ordenar por similitud descendente y limitar a 3
+    const sorted = results
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 3);
+
+    return { success: true, similar: sorted };
+  } catch (error) {
+    logger.error('aiService', 'findSimilarTasksLocal error', error);
+    return { success: true, similar: [] };
+  }
+}
+
+/**
+ * Busca tareas similares usando IA para comparación semántica (LENTO - usar solo si necesario)
+ */
+export async function findSimilarTasks(
+  newTitle: string,
+  pendingTasks: Array<{ id: string; title: string; dueDate: string | null; projectName: string | null }>
+): Promise<{ success: boolean; similar?: SimilarTask[]; error?: string }> {
+  try {
+    // Validaciones
+    if (!newTitle || newTitle.length < 3) {
+      return { success: true, similar: [] };
+    }
+    
+    if (!pendingTasks || pendingTasks.length === 0) {
+      return { success: true, similar: [] };
+    }
+
+    if (!openaiClient && !initializeClient()) {
+      return { success: false, error: 'IA no configurada' };
+    }
+    
+    const config = getAIConfig();
+    if (!config.enabled) {
+      return { success: false, error: 'IA deshabilitada' };
+    }
+
+    // Limitar a 50 tareas para no sobrecargar el prompt
+    const tasksToCompare = pendingTasks.slice(0, 50);
+    
+    const prompt = `Analiza si el título de una nueva tarea es similar o duplicado de alguna tarea existente.
+
+NUEVA TAREA: "${newTitle}"
+
+TAREAS EXISTENTES:
+${tasksToCompare.map((t, i) => `${i + 1}. [ID:${t.id}] "${t.title}"`).join('\n')}
+
+Busca tareas que:
+- Sean semánticamente similares (mismo concepto aunque con palabras diferentes)
+- Puedan ser duplicados o variantes de la misma tarea
+- Traten sobre el mismo tema/persona/proyecto
+
+NO incluyas tareas que solo comparten una palabra común genérica (como "llamar", "hacer", "revisar").
+
+Responde SOLO con un JSON array. Cada elemento debe tener:
+- "id": el ID de la tarea similar
+- "similarity": porcentaje de similitud (50-100, solo incluye si es >= 50)
+
+Si no hay similares, responde: []
+
+Ejemplo de respuesta: [{"id":"abc123","similarity":85},{"id":"def456","similarity":62}]`;
+
+    const completion = await openaiClient!.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: 'system', content: 'Eres un asistente que detecta tareas duplicadas. Responde SOLO con JSON válido, sin explicación.' },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 200,
+      temperature: 0.3,
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim();
+    
+    if (!response) {
+      return { success: true, similar: [] };
+    }
+
+    // Parsear JSON
+    try {
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        return { success: true, similar: [] };
+      }
+      
+      const parsed = JSON.parse(jsonMatch[0]) as Array<{ id: string; similarity: number }>;
+      
+      if (!Array.isArray(parsed)) {
+        return { success: true, similar: [] };
+      }
+
+      // Mapear con datos completos de las tareas
+      const similar: SimilarTask[] = parsed
+        .filter(p => p.id && p.similarity >= 50)
+        .map(p => {
+          const task = tasksToCompare.find(t => t.id === p.id);
+          if (!task) return null;
+          return {
+            id: task.id,
+            title: task.title,
+            dueDate: task.dueDate,
+            projectName: task.projectName,
+            similarity: p.similarity
+          };
+        })
+        .filter((t): t is SimilarTask => t !== null)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 3); // Máximo 3 resultados
+
+      return { success: true, similar };
+    } catch (parseError) {
+      logger.warn('aiService', 'Failed to parse similar tasks response', response);
+      return { success: true, similar: [] };
+    }
+  } catch (error: any) {
+    logger.error('aiService', 'findSimilarTasks error', error);
+    return { success: false, error: error.message || 'Error al buscar similares' };
+  }
+}
