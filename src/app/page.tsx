@@ -4,11 +4,12 @@ import { TaskList } from '../components/TaskList';
 
 /**
  * Página principal - Lista de tareas
+ * Vista inicial: Próximos 7 días
  */
 export default function HomePage() {
   return (
     <div className="h-full">
-      <TaskList />
+      <TaskList initialFilter="upcoming" />
     </div>
   );
 }interface StatusItemProps {

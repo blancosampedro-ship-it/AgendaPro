@@ -132,6 +132,7 @@ app.whenReady().then(async () => {
         import('./services/themeService').then(({ initThemeService }) => initThemeService(mainWindow)),
         import('./services/offlineService').then(({ initOfflineService }) => initOfflineService(mainWindow)),
         import('./shortcuts/globalShortcuts').then(({ registerGlobalShortcuts }) => registerGlobalShortcuts()),
+        import('./services/holidayService').then(({ initializeMadridHolidays }) => initializeMadridHolidays()),
       ]).then(() => {
         logger.debug('✓ Background services ready');
       }).catch(err => logger.warn('Background service error:', err));

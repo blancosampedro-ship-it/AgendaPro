@@ -87,6 +87,21 @@ const electronAPI = {
       ipcRenderer.invoke('schedule:week-analysis', startDate),
     detectAllConflicts: () => 
       ipcRenderer.invoke('schedule:detect-all-conflicts'),
+    isWorkingDay: (date: string) => 
+      ipcRenderer.invoke('schedule:is-working-day', date),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HOLIDAYS - Gestión de festivos
+  // ═══════════════════════════════════════════════════════════════════════
+  holidays: {
+    getAll: () => ipcRenderer.invoke('holidays:get-all'),
+    add: (data: { name: string; date: string; recurring: boolean }) => 
+      ipcRenderer.invoke('holidays:add', data),
+    remove: (id: string) => ipcRenderer.invoke('holidays:remove', id),
+    isHoliday: (date: string) => ipcRenderer.invoke('holidays:is-holiday', date),
+    getHolyWeek: (startYear: number, endYear: number) => 
+      ipcRenderer.invoke('holidays:get-holy-week', startYear, endYear),
   },
 
   // ═══════════════════════════════════════════════════════════════════════

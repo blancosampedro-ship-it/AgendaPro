@@ -67,7 +67,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showStats, setShowStats] = useState(false);
-  const [upcomingDays, setUpcomingDays] = useState<number>(30); // Rango de días para próximas
+  const [upcomingDays, setUpcomingDays] = useState<number>(7); // Rango de días para próximas (7 días por defecto)
 
   // Cargar proyectos
   const fetchProjects = useCallback(async () => {

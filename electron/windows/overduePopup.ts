@@ -110,18 +110,26 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
   const { width: screenWidth, height: screenHeight } = display.workAreaSize;
   
   const popupWidth = 620;
-  const popupHeight = Math.min(800, 350 + Math.min(tasks.length, 8) * 95);
+  // Altura máxima del 85% de la pantalla para siempre tener espacio
+  const maxHeight = Math.floor(screenHeight * 0.85);
+  // Calcular altura basada en tareas, con mínimo y máximo seguros
+  const calculatedHeight = 180 + Math.min(tasks.length, 15) * 85;
+  const popupHeight = Math.min(maxHeight, Math.max(400, calculatedHeight));
+  
+  // Centrar en pantalla, asegurando que Y nunca sea negativo
+  const posX = Math.round((screenWidth - popupWidth) / 2);
+  const posY = Math.max(20, Math.round((screenHeight - popupHeight) / 2));
 
   overdueWindow = new BrowserWindow({
     width: popupWidth,
     height: popupHeight,
-    x: Math.round((screenWidth - popupWidth) / 2),
-    y: Math.round((screenHeight - popupHeight) / 2) - 50,
+    x: posX,
+    y: posY,
     frame: false,
     transparent: true,
     alwaysOnTop: true, // Mantener encima de mainWindow
     skipTaskbar: false, // Mostrar en dock para poder restaurar
-    resizable: false,
+    resizable: true, // Permitir redimensionar si hay muchas tareas
     minimizable: true,
     maximizable: false,
     closable: true,
@@ -324,7 +332,9 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
-    body {
+    html, body {
+      height: 100%;
+      overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
       background: transparent;
       -webkit-font-smoothing: antialiased;
@@ -339,7 +349,8 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px ${theme.border};
       overflow: hidden;
       animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      height: 100vh;
+      height: 100%;
+      max-height: 100vh;
       display: flex;
       flex-direction: column;
     }
@@ -480,7 +491,9 @@ function generateOverdueHtml(tasks: OverdueTask[], isDark: boolean): string {
     
     .tasks-list {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: 12px 16px;
     }
     

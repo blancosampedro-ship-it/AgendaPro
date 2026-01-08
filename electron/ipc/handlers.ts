@@ -621,6 +621,16 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('schedule:is-working-day', async (_event, date: string) => {
+    try {
+      const { isWorkingDay } = await import('../services/scheduleAnalyzerService');
+      return await isWorkingDay(new Date(date));
+    } catch (error) {
+      logger.error('SCHEDULE_IS_WORKING_DAY error:', error);
+      return true; // Por defecto asumimos que es día laborable
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════════════
   // AI ASSISTANT HANDLERS - Integración con OpenAI
   // ═══════════════════════════════════════════════════════════════════════
@@ -1480,6 +1490,62 @@ export function setupIpcHandlers(): void {
       );
     } catch (error) {
       logger.error('COMMITMENT_CHECK_TRAVEL_CONFLICTS error:', error);
+      throw error;
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HOLIDAYS HANDLERS - Gestión de festivos de Madrid Capital
+  // ═══════════════════════════════════════════════════════════════════════
+
+  ipcMain.handle('holidays:get-all', async () => {
+    try {
+      const { getAllHolidays } = await import('../services/holidayService');
+      return await getAllHolidays();
+    } catch (error) {
+      logger.error('HOLIDAYS_GET_ALL error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('holidays:add', async (_event, data: { name: string; date: string; recurring: boolean }) => {
+    try {
+      const { addCustomHoliday } = await import('../services/holidayService');
+      await addCustomHoliday(data.name, new Date(data.date), data.recurring);
+      return { success: true };
+    } catch (error) {
+      logger.error('HOLIDAYS_ADD error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('holidays:remove', async (_event, id: string) => {
+    try {
+      const { removeHoliday } = await import('../services/holidayService');
+      await removeHoliday(id);
+      return { success: true };
+    } catch (error) {
+      logger.error('HOLIDAYS_REMOVE error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('holidays:is-holiday', async (_event, dateStr: string) => {
+    try {
+      const { isHolidayDate } = await import('../services/holidayService');
+      return await isHolidayDate(new Date(dateStr));
+    } catch (error) {
+      logger.error('HOLIDAYS_IS_HOLIDAY error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('holidays:get-holy-week', async (_event, startYear: number, endYear: number) => {
+    try {
+      const { getHolyWeekDatesForYears } = await import('../services/holidayService');
+      return getHolyWeekDatesForYears(startYear, endYear);
+    } catch (error) {
+      logger.error('HOLIDAYS_GET_HOLY_WEEK error:', error);
       throw error;
     }
   });

@@ -339,6 +339,12 @@ model Settings {
   sidebarCollapsed      Boolean   @default(false)
   theme                 String    @default("system")
   
+  // Días laborables - evitar sugerir en fines de semana/festivos
+  avoidWeekends         Boolean   @default(true)  // No sugerir sáb/dom
+  avoidHolidays         Boolean   @default(true)  // No sugerir en festivos
+  workingDaysStart      Int       @default(1)     // Lunes = 1
+  workingDaysEnd        Int       @default(5)     // Viernes = 5
+  
   updatedAt             DateTime  @updatedAt
   deviceId              String
 }
@@ -380,4 +386,19 @@ model PendingSync {
   
   @@index([timestamp])
   @@index([entityType])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HOLIDAY - Festivos configurados por el usuario
+// ═══════════════════════════════════════════════════════════════════════════
+model Holiday {
+  id          String    @id @default(uuid())
+  name        String                          // "Navidad", "Año Nuevo"
+  date        DateTime                        // Fecha del festivo
+  recurring   Boolean   @default(true)        // Se repite cada año
+  
+  createdAt   DateTime  @default(now())
+  deviceId    String
+  
+  @@index([date])
 }

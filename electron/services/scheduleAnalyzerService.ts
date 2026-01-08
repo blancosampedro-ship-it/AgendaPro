@@ -1,6 +1,7 @@
 /**
  * Schedule Analyzer Service
  * Analiza conflictos de horarios, carga de días y sugiere alternativas
+ * Incluye lógica para evitar fines de semana y festivos
  */
 
 import { getDatabase } from '../database/connection';
@@ -45,12 +46,203 @@ export interface ScheduleAnalysis {
   suggestions: SuggestedSlot[];
   // Advertencia general
   warning: string | null;
+  // Advertencia de día no laborable
+  nonWorkingDayWarning: string | null;
+}
+
+export interface WorkdaySettings {
+  avoidWeekends: boolean;
+  avoidHolidays: boolean;
+  workingDaysStart: number; // 0=dom, 1=lun... 6=sáb
+  workingDaysEnd: number;
 }
 
 // Configuración
 const HEAVY_DAY_THRESHOLD = 5;   // 5+ tareas = día pesado
 const MODERATE_DAY_THRESHOLD = 3; // 3-4 tareas = día moderado
 const CONFLICT_WINDOW_MINUTES = 30; // Tareas a menos de 30 min se consideran conflicto
+
+// Cache de configuración (se recarga cada 5 min)
+let workdaySettingsCache: WorkdaySettings | null = null;
+let holidaysCache: Date[] = [];
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+/**
+ * Carga la configuración de días laborables
+ */
+async function loadWorkdaySettings(): Promise<WorkdaySettings> {
+  // TEMPORAL: Desactivar cache para debug
+  // const now = Date.now();
+  // if (workdaySettingsCache && (now - cacheTimestamp) < CACHE_TTL) {
+  //   return workdaySettingsCache;
+  // }
+  
+  try {
+    const db = getDatabase();
+    const settings = await db.settings.findUnique({ where: { id: 'main' } });
+    
+    logger.info('Raw settings from DB:', { 
+      avoidWeekends: settings?.avoidWeekends,
+      avoidHolidays: settings?.avoidHolidays,
+      workingDaysStart: settings?.workingDaysStart,
+      workingDaysEnd: settings?.workingDaysEnd,
+    });
+    
+    // Los valores por defecto son true para evitar fines de semana/festivos
+    // Si el campo es null (registro antiguo), usar el default true
+    const avoidWeekends = settings?.avoidWeekends !== false; // true si es null, undefined o true
+    const avoidHolidays = settings?.avoidHolidays !== false; // true si es null, undefined o true
+    
+    workdaySettingsCache = {
+      avoidWeekends,
+      avoidHolidays,
+      workingDaysStart: settings?.workingDaysStart ?? 1,
+      workingDaysEnd: settings?.workingDaysEnd ?? 5,
+    };
+    
+    logger.info('Computed workday settings:', workdaySettingsCache);
+    
+    // Cargar festivos del año actual y siguiente
+    const thisYear = new Date().getFullYear();
+    const holidays = await db.holiday.findMany({
+      where: {
+        OR: [
+          { recurring: true },
+          {
+            date: {
+              gte: new Date(thisYear, 0, 1),
+              lte: new Date(thisYear + 1, 11, 31),
+            }
+          }
+        ]
+      }
+    });
+    
+    holidaysCache = holidays.map(h => new Date(h.date));
+    cacheTimestamp = Date.now();
+    
+    logger.info(`Loaded ${holidaysCache.length} holidays`);
+    
+    return workdaySettingsCache;
+  } catch (error) {
+    logger.error('Error loading workday settings:', error);
+    return {
+      avoidWeekends: true,
+      avoidHolidays: true,
+      workingDaysStart: 1,
+      workingDaysEnd: 5,
+    };
+  }
+}
+
+/**
+ * Verifica si una fecha es fin de semana
+ * SIEMPRE considera sábado (6) y domingo (0) como fin de semana
+ * La configuración avoidWeekends controla si queremos evitarlos o no
+ */
+function isWeekend(date: Date, settings: WorkdaySettings): boolean {
+  const day = date.getDay(); // 0=dom, 1=lun... 6=sáb
+  
+  // Sábado = 6, Domingo = 0
+  const isSaturdayOrSunday = day === 0 || day === 6;
+  
+  // Si avoidWeekends está desactivado, no consideramos ningún día como "fin de semana a evitar"
+  if (!settings.avoidWeekends) {
+    logger.debug(`isWeekend: avoidWeekends is OFF, returning false`);
+    return false;
+  }
+  
+  logger.debug(`isWeekend check: day=${day} (${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][day]}), isSaturdayOrSunday=${isSaturdayOrSunday}`);
+  return isSaturdayOrSunday;
+}
+
+/**
+ * Verifica si una fecha es festivo
+ */
+function isHoliday(date: Date, settings: WorkdaySettings): boolean {
+  if (!settings.avoidHolidays) return false;
+  
+  const dateStr = formatDateKey(date);
+  
+  for (const holiday of holidaysCache) {
+    // Para festivos recurrentes, comparar solo mes y día
+    const holidayStr = formatDateKey(holiday);
+    if (dateStr === holidayStr) return true;
+    
+    // Comparar mes/día para festivos recurrentes
+    if (date.getMonth() === holiday.getMonth() && 
+        date.getDate() === holiday.getDate()) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Verifica si una fecha es día laborable
+ */
+export async function isWorkingDay(date: Date): Promise<boolean> {
+  const settings = await loadWorkdaySettings();
+  return !isWeekend(date, settings) && !isHoliday(date, settings);
+}
+
+/**
+ * Obtiene el motivo por el que un día no es laborable
+ */
+async function getNonWorkingDayReason(date: Date): Promise<string | null> {
+  const settings = await loadWorkdaySettings();
+  
+  if (isWeekend(date, settings)) {
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    return `${dayNames[date.getDay()]} es fin de semana`;
+  }
+  
+  if (isHoliday(date, settings)) {
+    // Buscar nombre del festivo
+    const db = getDatabase();
+    const dateStart = new Date(date);
+    dateStart.setHours(0, 0, 0, 0);
+    const dateEnd = new Date(date);
+    dateEnd.setHours(23, 59, 59, 999);
+    
+    const holiday = await db.holiday.findFirst({
+      where: {
+        OR: [
+          { date: { gte: dateStart, lte: dateEnd } },
+          { recurring: true }
+        ]
+      }
+    });
+    
+    if (holiday && holiday.date.getMonth() === date.getMonth() && 
+        holiday.date.getDate() === date.getDate()) {
+      return `Es festivo: ${holiday.name}`;
+    }
+    return 'Es día festivo';
+  }
+  
+  return null;
+}
+
+/**
+ * Encuentra el siguiente día laborable
+ */
+async function getNextWorkingDay(fromDate: Date, maxDays: number = 14): Promise<Date | null> {
+  const settings = await loadWorkdaySettings();
+  const checkDate = new Date(fromDate);
+  
+  for (let i = 1; i <= maxDays; i++) {
+    checkDate.setDate(checkDate.getDate() + 1);
+    
+    if (!isWeekend(checkDate, settings) && !isHoliday(checkDate, settings)) {
+      return new Date(checkDate);
+    }
+  }
+  
+  return null;
+}
 
 /**
  * Verifica si dos fechas son el mismo día
@@ -201,6 +393,7 @@ function findNextFreeSlot(tasks: TaskSummary[], targetDate: Date): Date | null {
 
 /**
  * Sugiere horarios alternativos
+ * Ahora filtra fines de semana y festivos según configuración
  */
 async function suggestAlternatives(
   targetDate: Date,
@@ -208,24 +401,49 @@ async function suggestAlternatives(
 ): Promise<SuggestedSlot[]> {
   const suggestions: SuggestedSlot[] = [];
   const db = getDatabase();
+  const settings = await loadWorkdaySettings();
   
-  // 1. Siguiente hueco libre en el mismo día
-  const sameDayTasks = await getTasksForDay(targetDate, excludeTaskId);
-  const sameDaySlot = findNextFreeSlot(sameDayTasks, targetDate);
+  logger.info('suggestAlternatives - Settings:', { 
+    avoidWeekends: settings.avoidWeekends,
+    avoidHolidays: settings.avoidHolidays,
+    targetDate: targetDate.toISOString(),
+    targetDay: targetDate.getDay()
+  });
   
-  if (sameDaySlot && !isSameHour(sameDaySlot, targetDate)) {
-    suggestions.push({
-      date: sameDaySlot,
-      reason: 'Siguiente hueco libre hoy',
-      dayLoad: getDayLevel(sameDayTasks.length),
-    });
+  // 1. Siguiente hueco libre en el mismo día (solo si es día laborable)
+  const targetIsWorkingDay = !isWeekend(targetDate, settings) && !isHoliday(targetDate, settings);
+  
+  if (targetIsWorkingDay) {
+    const sameDayTasks = await getTasksForDay(targetDate, excludeTaskId);
+    const sameDaySlot = findNextFreeSlot(sameDayTasks, targetDate);
+    
+    if (sameDaySlot && !isSameHour(sameDaySlot, targetDate)) {
+      suggestions.push({
+        date: sameDaySlot,
+        reason: 'Siguiente hueco libre hoy',
+        dayLoad: getDayLevel(sameDayTasks.length),
+      });
+    }
   }
   
-  // 2. Buscar días cercanos con menos carga (próximos 7 días)
-  for (let i = 1; i <= 7; i++) {
+  // 2. Buscar días cercanos con menos carga (próximos 14 días, solo laborables)
+  let foundLightDay = false;
+  for (let i = 1; i <= 14 && !foundLightDay; i++) {
     const checkDate = new Date(targetDate);
     checkDate.setDate(checkDate.getDate() + i);
     checkDate.setHours(targetDate.getHours(), targetDate.getMinutes(), 0, 0);
+    
+    const dayNum = checkDate.getDay();
+    const isWknd = isWeekend(checkDate, settings);
+    const isHoli = isHoliday(checkDate, settings);
+    
+    logger.debug(`Checking day ${i}: ${getDayName(checkDate)} (${dayNum}), isWeekend=${isWknd}, isHoliday=${isHoli}`);
+    
+    // Saltar fines de semana y festivos
+    if (isWknd || isHoli) {
+      logger.debug(`  -> Skipping ${getDayName(checkDate)}`);
+      continue;
+    }
     
     const dayLoad = await getDayLoad(checkDate, excludeTaskId);
     
@@ -236,23 +454,70 @@ async function suggestAlternatives(
         reason: `${getDayName(checkDate)} tiene pocas tareas (${dayLoad.taskCount})`,
         dayLoad: dayLoad.level,
       });
-      break; // Solo sugerir el primer día ligero
+      foundLightDay = true;
     }
   }
   
-  // 3. Misma hora otro día (si el día actual está muy cargado)
+  // 3. Si el día actual es fin de semana/festivo, sugerir el siguiente día laborable
+  if (!targetIsWorkingDay) {
+    const nextWorking = await getNextWorkingDay(targetDate);
+    if (nextWorking) {
+      nextWorking.setHours(targetDate.getHours(), targetDate.getMinutes(), 0, 0);
+      const dayLoad = await getDayLoad(nextWorking, excludeTaskId);
+      
+      suggestions.push({
+        date: nextWorking,
+        reason: `Siguiente día laborable (${getDayName(nextWorking)})`,
+        dayLoad: dayLoad.level,
+      });
+    }
+  }
+  
+  // 4. Misma hora mañana (si el día actual está muy cargado y mañana es laborable)
+  const sameDayTasks = await getTasksForDay(targetDate, excludeTaskId);
   if (sameDayTasks.length >= HEAVY_DAY_THRESHOLD) {
     const tomorrow = new Date(targetDate);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
-    const tomorrowLoad = await getDayLoad(tomorrow, excludeTaskId);
+    const tomorrowIsWeekend = isWeekend(tomorrow, settings);
+    const tomorrowIsHoliday = isHoliday(tomorrow, settings);
     
-    if (tomorrowLoad.level !== 'heavy') {
-      suggestions.push({
-        date: tomorrow,
-        reason: `Mañana está más tranquilo (${tomorrowLoad.taskCount} tareas)`,
-        dayLoad: tomorrowLoad.level,
-      });
+    logger.debug(`Section 4 - Tomorrow check: ${getDayName(tomorrow)}, isWeekend=${tomorrowIsWeekend}, isHoliday=${tomorrowIsHoliday}`);
+    
+    // Si mañana no es laborable, buscar siguiente día laborable
+    let nextDay: Date | null = null;
+    
+    if (!tomorrowIsWeekend && !tomorrowIsHoliday) {
+      // Mañana es laborable, usarlo
+      nextDay = tomorrow;
+    } else {
+      // Mañana NO es laborable, buscar el siguiente día que sí lo sea
+      const nextWorking = await getNextWorkingDay(targetDate);
+      if (nextWorking) {
+        nextDay = nextWorking;
+        logger.debug(`  -> Tomorrow not working, next working day: ${getDayName(nextDay)}`);
+      }
+    }
+    
+    if (nextDay) {
+      nextDay.setHours(targetDate.getHours(), targetDate.getMinutes(), 0, 0);
+      const nextDayLoad = await getDayLoad(nextDay, excludeTaskId);
+      
+      // Verificar que realmente es un día laborable (doble check)
+      const nextDayIsWorkingDay = !isWeekend(nextDay, settings) && !isHoliday(nextDay, settings);
+      
+      if (nextDayIsWorkingDay && nextDayLoad.level !== 'heavy') {
+        const dayName = getDayName(nextDay);
+        // Es mañana si es exactamente el día siguiente
+        const isTomorrow = nextDay.toDateString() === tomorrow.toDateString();
+        suggestions.push({
+          date: nextDay,
+          reason: isTomorrow 
+            ? `Mañana está más tranquilo (${nextDayLoad.taskCount} tareas)`
+            : `${dayName} está más tranquilo (${nextDayLoad.taskCount} tareas)`,
+          dayLoad: nextDayLoad.level,
+        });
+      }
     }
   }
   
@@ -294,10 +559,11 @@ export async function analyzeSchedule(
   });
   
   // Ejecutar análisis en paralelo
-  const [conflicts, dayLoad, suggestions] = await Promise.all([
+  const [conflicts, dayLoad, suggestions, nonWorkingReason] = await Promise.all([
     findConflicts(targetDate, excludeTaskId),
     getDayLoad(targetDate, excludeTaskId),
     suggestAlternatives(targetDate, excludeTaskId),
+    getNonWorkingDayReason(targetDate),
   ]);
   
   // Generar advertencia
@@ -317,6 +583,7 @@ export async function analyzeSchedule(
     dayLoad,
     suggestions,
     warning,
+    nonWorkingDayWarning: nonWorkingReason,
   };
 }
 

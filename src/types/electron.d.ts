@@ -124,6 +124,7 @@ export interface ElectronAPI {
       dayLoad: { date: string; taskCount: number; level: string; tasks: unknown[] };
       suggestions: Array<{ date: string; reason: string; dayLoad: string }>;
       warning: string | null;
+      nonWorkingDayWarning: string | null;
     }>;
     checkConflicts: (proposedDate: string, excludeTaskId?: string) => Promise<{
       hasConflicts: boolean;
@@ -131,6 +132,21 @@ export interface ElectronAPI {
     }>;
     getWeekAnalysis: (startDate?: string) => Promise<unknown[]>;
     detectAllConflicts: () => Promise<unknown[]>;
+    isWorkingDay: (date: string) => Promise<boolean>;
+  };
+
+  // Holidays - Gestión de festivos de Madrid Capital
+  holidays: {
+    getAll: () => Promise<Array<{ id: string; name: string; date: string; recurring: boolean }>>;
+    add: (data: { name: string; date: string; recurring: boolean }) => Promise<{ success: boolean }>;
+    remove: (id: string) => Promise<{ success: boolean }>;
+    isHoliday: (date: string) => Promise<{ isHoliday: boolean; name?: string }>;
+    getHolyWeek: (startYear: number, endYear: number) => Promise<Array<{
+      year: number;
+      holyThursday: string;
+      goodFriday: string;
+      easterSunday: string;
+    }>>;
   };
 
   // Reminders
@@ -148,8 +164,48 @@ export interface ElectronAPI {
 
   // Settings
   settings: {
-    get: () => Promise<unknown>;
-    update: (settings: unknown) => Promise<unknown>;
+    get: () => Promise<{
+      id: string;
+      defaultReminderTime: string;
+      weekStartsOn: number;
+      notificationSound: boolean;
+      notificationBadge: boolean;
+      snoozeShort: number;
+      snoozeMedium: number;
+      snoozeLong: number;
+      snoozeTomorrowTime: string;
+      firebaseEnabled: boolean;
+      lastSyncAt: string | null;
+      autoBackupEnabled: boolean;
+      autoBackupIntervalH: number;
+      lastBackupAt: string | null;
+      sidebarCollapsed: boolean;
+      theme: string;
+      avoidWeekends: boolean;
+      avoidHolidays: boolean;
+      workingDaysStart: number;
+      workingDaysEnd: number;
+      updatedAt: string;
+      deviceId: string;
+    }>;
+    update: (settings: Partial<{
+      defaultReminderTime: string;
+      notificationSound: boolean;
+      notificationBadge: boolean;
+      snoozeShort: number;
+      snoozeMedium: number;
+      snoozeLong: number;
+      snoozeTomorrowTime: string;
+      firebaseEnabled: boolean;
+      autoBackupEnabled: boolean;
+      autoBackupIntervalH: number;
+      sidebarCollapsed: boolean;
+      theme: string;
+      avoidWeekends: boolean;
+      avoidHolidays: boolean;
+      workingDaysStart: number;
+      workingDaysEnd: number;
+    }>) => Promise<unknown>;
   };
 
   // Firebase (Fase 5)
