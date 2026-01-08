@@ -271,21 +271,23 @@ export default function AppSettings() {
     }
     
     try {
-      const holiday = await window.electronAPI?.holidays?.create({
+      await window.electronAPI?.holidays?.add({
         name: newHolidayName.trim(),
         date: newHolidayDate,
         recurring: true,
       });
       
-      if (holiday) {
-        setHolidays(prev => [...prev, {
-          ...holiday,
-          date: new Date(holiday.date).toISOString().split('T')[0],
-        }].sort((a, b) => a.date.localeCompare(b.date)));
-        setNewHolidayName('');
-        setNewHolidayDate('');
-        showMessage('success', `Festivo "${newHolidayName}" añadido`);
+      // Recargar festivos
+      const updatedHolidays = await window.electronAPI?.holidays?.getAll();
+      if (updatedHolidays) {
+        setHolidays(updatedHolidays.map(h => ({
+          ...h,
+          date: new Date(h.date).toISOString().split('T')[0],
+        })).sort((a, b) => a.date.localeCompare(b.date)));
       }
+      setNewHolidayName('');
+      setNewHolidayDate('');
+      showMessage('success', `Festivo "${newHolidayName}" añadido`);
     } catch (error) {
       showMessage('error', 'Error al añadir festivo');
     }
@@ -293,7 +295,7 @@ export default function AppSettings() {
 
   const handleDeleteHoliday = async (id: string, name: string) => {
     try {
-      await window.electronAPI?.holidays?.delete(id);
+      await window.electronAPI?.holidays?.remove(id);
       setHolidays(prev => prev.filter(h => h.id !== id));
       showMessage('success', `Festivo "${name}" eliminado`);
     } catch (error) {
@@ -304,18 +306,16 @@ export default function AppSettings() {
   const handleAddDefaultHolidays = async () => {
     try {
       setLoading(true);
-      const result = await window.electronAPI?.holidays?.addDefaultSpain();
-      if (result?.success) {
-        // Recargar lista de festivos
-        const holidaysList = await window.electronAPI?.holidays?.getAll();
-        setHolidays(holidaysList?.map((h: any) => ({
-          ...h,
-          date: new Date(h.date).toISOString().split('T')[0],
-        })) || []);
-        showMessage('success', `Se añadieron ${result.added} festivos de España`);
-      }
+      // Los festivos de Madrid se cargan automáticamente al iniciar
+      // Este botón recarga la lista
+      const holidaysList = await window.electronAPI?.holidays?.getAll();
+      setHolidays(holidaysList?.map((h: any) => ({
+        ...h,
+        date: new Date(h.date).toISOString().split('T')[0],
+      })) || []);
+      showMessage('success', `${holidaysList?.length || 0} festivos cargados`);
     } catch (error) {
-      showMessage('error', 'Error al añadir festivos');
+      showMessage('error', 'Error al cargar festivos');
     } finally {
       setLoading(false);
     }
@@ -510,14 +510,14 @@ export default function AppSettings() {
               <section>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    🎉 Días festivos
+                    🎉 Días festivos (Madrid Capital)
                   </h3>
                   <button
                     onClick={handleAddDefaultHolidays}
                     disabled={loading}
                     className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
                   >
-                    + Añadir festivos España
+                    ↻ Recargar festivos
                   </button>
                 </div>
                 
