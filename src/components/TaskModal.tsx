@@ -89,6 +89,7 @@ interface ScheduleAnalysis {
   };
   suggestions: Array<{ date: string; reason: string; dayLoad: 'light' | 'moderate' | 'heavy' }>;
   warning: string | null;
+  nonWorkingDayWarning: string | null;
 }
 
 interface Subtask {
@@ -283,7 +284,7 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
   const [newSubEventTime, setNewSubEventTime] = useState('09:00');
   // ═══════════════════════════════════════════════════════════════════════
   const [waitingForNote, setWaitingForNote] = useState(task?.waitingForNote || '');
-  const [addReminder, setAddReminder] = useState(true);
+  const [addReminder, setAddReminder] = useState(false); // Por defecto desactivado para evitar doble notificación
   const [saving, setSaving] = useState(false);
   
   // ═══════════════════════════════════════════════════════════════════════
@@ -1247,8 +1248,8 @@ export function TaskModal({ task, projects, defaultProjectId, onClose, onSave }:
         try {
           const analysis = await api.schedule.analyze(dueDateFull, task?.id);
           
-          // Si hay conflictos o día muy cargado, mostrar modal
-          if (analysis && analysis.conflicts?.hasConflicts || analysis?.dayLoad?.level === 'heavy') {
+          // Si hay conflictos, día muy cargado o día no laborable (fin de semana/festivo), mostrar modal
+          if (analysis && (analysis.conflicts?.hasConflicts || analysis?.dayLoad?.level === 'heavy' || analysis?.nonWorkingDayWarning)) {
             setScheduleAnalysis(analysis);
             setPendingTaskData(taskData);
             setShowConflictModal(true);

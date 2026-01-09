@@ -35,6 +35,7 @@ interface ScheduleAnalysis {
   dayLoad: DayLoad;
   suggestions: SuggestedSlot[];
   warning: string | null;
+  nonWorkingDayWarning: string | null;
 }
 
 interface ConflictModalProps {
@@ -111,6 +112,7 @@ export function ConflictModal({
 
   const hasConflicts = analysis.conflicts.hasConflicts;
   const isHeavyDay = analysis.dayLoad.level === 'heavy';
+  const isNonWorkingDay = !!analysis.nonWorkingDayWarning;
 
   return (
     <div
@@ -122,14 +124,14 @@ export function ConflictModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`px-5 py-4 ${hasConflicts ? 'bg-red-600' : isHeavyDay ? 'bg-amber-600' : 'bg-blue-600'}`}>
+        <div className={`px-5 py-4 ${hasConflicts ? 'bg-red-600' : isNonWorkingDay ? 'bg-orange-600' : isHeavyDay ? 'bg-amber-600' : 'bg-blue-600'}`}>
           <div className="flex items-center gap-3">
             <span className="text-2xl">
-              {hasConflicts ? '⚠️' : isHeavyDay ? '📅' : 'ℹ️'}
+              {hasConflicts ? '⚠️' : isNonWorkingDay ? '🚫' : isHeavyDay ? '📅' : 'ℹ️'}
             </span>
             <div>
               <h3 className="font-bold text-white text-lg">
-                {hasConflicts ? 'Conflicto de horario' : isHeavyDay ? 'Día muy cargado' : 'Análisis de agenda'}
+                {hasConflicts ? 'Conflicto de horario' : isNonWorkingDay ? 'Día no laborable' : isHeavyDay ? 'Día muy cargado' : 'Análisis de agenda'}
               </h3>
               <p className="text-sm text-white/90">
                 {formatDate(originalDate)} a las {formatTime(originalDate)}
@@ -140,6 +142,18 @@ export function ConflictModal({
 
         {/* Content */}
         <div className="p-5 space-y-4">
+          {/* Non-working day warning */}
+          {isNonWorkingDay && (
+            <div className="p-3 rounded-lg bg-orange-900/60 border border-orange-500">
+              <p className="text-sm text-white font-medium">
+                🚫 {analysis.nonWorkingDayWarning}
+              </p>
+              <p className="text-xs text-orange-200 mt-1">
+                Has seleccionado un día no laborable. ¿Quieres continuar de todas formas?
+              </p>
+            </div>
+          )}
+
           {/* Warning message */}
           {analysis.warning && (
             <div className={`p-3 rounded-lg ${hasConflicts ? 'bg-red-900/60 border border-red-500' : 'bg-amber-900/60 border border-amber-500'}`}>
@@ -246,10 +260,12 @@ export function ConflictModal({
             className={`flex-1 px-4 py-2.5 rounded-lg transition-colors text-sm font-medium text-white ${
               hasConflicts 
                 ? 'bg-red-600 hover:bg-red-500' 
+                : isNonWorkingDay
+                ? 'bg-orange-600 hover:bg-orange-500'
                 : 'bg-amber-600 hover:bg-amber-500'
             }`}
           >
-            Mantener
+            {isNonWorkingDay ? 'Usar de todos modos' : 'Mantener'}
           </button>
           {selectedSuggestion && (
             <button

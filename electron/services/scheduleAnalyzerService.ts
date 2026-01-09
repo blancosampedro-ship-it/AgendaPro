@@ -521,7 +521,31 @@ async function suggestAlternatives(
     }
   }
   
-  return suggestions.slice(0, 3); // Máximo 3 sugerencias
+  // FILTRO FINAL DE SEGURIDAD: Eliminar cualquier sugerencia de fin de semana/festivo
+  // Esto es una red de seguridad por si alguna lógica anterior falló
+  const filteredSuggestions = suggestions.filter(s => {
+    const suggDate = s.date instanceof Date ? s.date : new Date(s.date);
+    const isWknd = isWeekend(suggDate, settings);
+    const isHoli = isHoliday(suggDate, settings);
+    
+    if (isWknd || isHoli) {
+      logger.warn(`FILTERED OUT suggestion that was weekend/holiday: ${getDayName(suggDate)} ${suggDate.toISOString()}`);
+      return false;
+    }
+    return true;
+  });
+  
+  logger.info('suggestAlternatives - Final suggestions:', {
+    original: suggestions.length,
+    filtered: filteredSuggestions.length,
+    suggestions: filteredSuggestions.map(s => ({
+      date: s.date instanceof Date ? s.date.toISOString() : s.date,
+      day: s.date instanceof Date ? getDayName(s.date) : 'unknown',
+      reason: s.reason
+    }))
+  });
+  
+  return filteredSuggestions.slice(0, 3); // Máximo 3 sugerencias
 }
 
 /**
