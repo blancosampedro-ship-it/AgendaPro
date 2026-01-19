@@ -49,3 +49,11 @@ coverage/
 # Private keys
 *.pem
 *.key
+# GitHub tokens
+.npmrc
+.yarnrc
+github-token.txt
+
+# Credentials
+credentials.json
+secrets.json
