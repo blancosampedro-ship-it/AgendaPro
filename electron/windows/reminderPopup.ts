@@ -64,7 +64,7 @@ function createReminderWindow(data: ReminderPopupData): void {
     y: Math.round((screenHeight - popupHeight) / 2) - 80,
     frame: false,
     transparent: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false, // NO mantener siempre encima - comportamiento normal de ventana
     skipTaskbar: true,
     resizable: false,
     minimizable: false,
@@ -86,18 +86,13 @@ function createReminderWindow(data: ReminderPopupData): void {
 
   reminderWindow.once('ready-to-show', () => {
     if (reminderWindow) {
+      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
       reminderWindow.show();
       reminderWindow.focus();
       shell.beep();
-      
-      // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
-      // El popup ya habrá captado la atención del usuario
-      setTimeout(() => {
-        if (reminderWindow && !reminderWindow.isDestroyed()) {
-          reminderWindow.setAlwaysOnTop(false);
-          logger.debug('Reminder popup: alwaysOnTop disabled (timeout)');
-        }
-      }, 1000);
+      // Elevar la ventana al frente una sola vez
+      reminderWindow.moveTop();
+      logger.debug('Reminder popup: shown with normal window behavior');
     }
   });
   

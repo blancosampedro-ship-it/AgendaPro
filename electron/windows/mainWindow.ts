@@ -6,6 +6,7 @@
 import { BrowserWindow, shell, Menu, MenuItemConstructorOptions, app, nativeImage } from 'electron';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { hideOverduePopup, showOverduePopupIfWasVisible } from './overduePopup';
 
 let mainWindow: BrowserWindow | null = null;
 let forceQuit = false; // Bandera para forzar cierre
@@ -100,6 +101,25 @@ export async function createMainWindow(devServerUrl: string | null): Promise<Bro
   mainWindow.on('closed', () => {
     mainWindow = null;
     logger.debug('Main window reference cleared');
+  });
+
+  // Ocultar popup de tareas vencidas cuando la app pierde foco
+  mainWindow.on('blur', () => {
+    hideOverduePopup();
+  });
+
+  // Mostrar popup de tareas vencidas cuando la app recupera foco
+  mainWindow.on('focus', () => {
+    showOverduePopupIfWasVisible();
+  });
+
+  // También manejar cuando la ventana se oculta/muestra
+  mainWindow.on('hide', () => {
+    hideOverduePopup();
+  });
+
+  mainWindow.on('show', () => {
+    showOverduePopupIfWasVisible();
   });
 
   // Abrir links externos en navegador por defecto

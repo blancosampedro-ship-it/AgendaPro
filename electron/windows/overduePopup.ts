@@ -8,6 +8,7 @@ import { logger } from '../utils/logger';
 import { getMainWindow, showMainWindow } from './mainWindow';
 
 let overdueWindow: BrowserWindow | null = null;
+let wasVisibleBeforeBlur = false; // Rastrear si estaba visible antes de que la app perdiera foco
 
 export interface OverdueTask {
   id: string;
@@ -127,7 +128,7 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
     y: posY,
     frame: false,
     transparent: true,
-    alwaysOnTop: true, // Mantener encima de mainWindow
+    alwaysOnTop: false, // NO mantener siempre encima
     skipTaskbar: false, // Mostrar en dock para poder restaurar
     resizable: true, // Permitir redimensionar si hay muchas tareas
     minimizable: true,
@@ -149,18 +150,12 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
 
   overdueWindow.once('ready-to-show', () => {
     if (overdueWindow) {
-      overdueWindow.setAlwaysOnTop(true, 'floating');
+      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
       overdueWindow.show();
       overdueWindow.focus();
-      
-      // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
-      // El popup ya habrá captado la atención del usuario
-      setTimeout(() => {
-        if (overdueWindow && !overdueWindow.isDestroyed()) {
-          overdueWindow.setAlwaysOnTop(false);
-          logger.debug('Overdue popup: alwaysOnTop disabled (timeout)');
-        }
-      }, 1000);
+      // Elevar la ventana al frente una sola vez
+      overdueWindow.moveTop();
+      logger.debug('Overdue popup: shown with normal window behavior');
     }
   });
 
@@ -192,6 +187,29 @@ export function restoreOverduePopup(): void {
 
 export function isOverduePopupOpen(): boolean {
   return overdueWindow !== null && !overdueWindow.isDestroyed();
+}
+
+/**
+ * Oculta el popup de tareas vencidas (cuando la app pasa a segundo plano)
+ */
+export function hideOverduePopup(): void {
+  if (overdueWindow && !overdueWindow.isDestroyed()) {
+    wasVisibleBeforeBlur = overdueWindow.isVisible();
+    if (wasVisibleBeforeBlur) {
+      overdueWindow.hide();
+      logger.debug('Overdue popup hidden (app lost focus)');
+    }
+  }
+}
+
+/**
+ * Muestra el popup de tareas vencidas si estaba visible antes del blur
+ */
+export function showOverduePopupIfWasVisible(): void {
+  if (overdueWindow && !overdueWindow.isDestroyed() && wasVisibleBeforeBlur) {
+    overdueWindow.show();
+    logger.debug('Overdue popup shown (app regained focus)');
+  }
 }
 
 /**

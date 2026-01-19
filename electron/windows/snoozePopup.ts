@@ -45,7 +45,7 @@ export function showSnoozePopup(data: SnoozePopupData): void {
     y: screenHeight - popupHeight - margin,
     frame: false,
     transparent: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false, // NO mantener siempre encima - comportamiento normal de ventana
     skipTaskbar: true,
     resizable: false,
     show: false,
@@ -61,15 +61,13 @@ export function showSnoozePopup(data: SnoozePopupData): void {
   snoozeWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
 
   snoozeWindow.once('ready-to-show', () => {
-    snoozeWindow?.show();
-    snoozeWindow?.focus();
-    
-    // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
-    setTimeout(() => {
-      if (snoozeWindow && !snoozeWindow.isDestroyed()) {
-        snoozeWindow.setAlwaysOnTop(false);
-      }
-    }, 1000);
+    if (snoozeWindow) {
+      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
+      snoozeWindow.show();
+      snoozeWindow.focus();
+      // Elevar la ventana al frente una sola vez
+      snoozeWindow.moveTop();
+    }
   });
 
   snoozeWindow.on('closed', () => {
