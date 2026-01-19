@@ -152,6 +152,15 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
       overdueWindow.setAlwaysOnTop(true, 'floating');
       overdueWindow.show();
       overdueWindow.focus();
+      
+      // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
+      // El popup ya habrá captado la atención del usuario
+      setTimeout(() => {
+        if (overdueWindow && !overdueWindow.isDestroyed()) {
+          overdueWindow.setAlwaysOnTop(false);
+          logger.debug('Overdue popup: alwaysOnTop disabled (timeout)');
+        }
+      }, 1000);
     }
   });
 

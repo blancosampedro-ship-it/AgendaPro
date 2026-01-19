@@ -63,15 +63,13 @@ export function showSnoozePopup(data: SnoozePopupData): void {
   snoozeWindow.once('ready-to-show', () => {
     snoozeWindow?.show();
     snoozeWindow?.focus();
-  });
-
-  // Cerrar al perder foco
-  snoozeWindow.on('blur', () => {
+    
+    // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
     setTimeout(() => {
-      if (snoozeWindow && !snoozeWindow.isFocused()) {
-        snoozeWindow.close();
+      if (snoozeWindow && !snoozeWindow.isDestroyed()) {
+        snoozeWindow.setAlwaysOnTop(false);
       }
-    }, 200);
+    }, 1000);
   });
 
   snoozeWindow.on('closed', () => {

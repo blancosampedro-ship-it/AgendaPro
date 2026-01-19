@@ -89,10 +89,17 @@ function createReminderWindow(data: ReminderPopupData): void {
       reminderWindow.show();
       reminderWindow.focus();
       shell.beep();
+      
+      // Después de 1 segundo, desactivar alwaysOnTop para comportamiento normal de macOS
+      // El popup ya habrá captado la atención del usuario
+      setTimeout(() => {
+        if (reminderWindow && !reminderWindow.isDestroyed()) {
+          reminderWindow.setAlwaysOnTop(false);
+          logger.debug('Reminder popup: alwaysOnTop disabled (timeout)');
+        }
+      }, 1000);
     }
   });
-
-  // NO cerramos al perder foco - permanece hasta que el usuario actúe
   
   reminderWindow.on('closed', () => {
     reminderWindow = null;
