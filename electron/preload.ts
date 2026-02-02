@@ -121,6 +121,13 @@ const electronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.REMINDER_GET_OPTIONS),
     getDefaults: (commitmentType: string) => 
       ipcRenderer.invoke(IPC_CHANNELS.REMINDER_GET_DEFAULTS, commitmentType),
+    // Nuevos métodos para gestión de recordatorios
+    getAll: () => 
+      ipcRenderer.invoke(IPC_CHANNELS.REMINDER_GET_ALL),
+    update: (id: string, data: { fireAt?: string; advanceMinutes?: number; advanceLabel?: string }) => 
+      ipcRenderer.invoke(IPC_CHANNELS.REMINDER_UPDATE, id, data),
+    delete: (id: string) => 
+      ipcRenderer.invoke(IPC_CHANNELS.REMINDER_DELETE, id),
   },
 
   // Acción del popup de recordatorio (desde ventana de recordatorio)

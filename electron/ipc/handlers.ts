@@ -877,6 +877,72 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // Obtener TODOS los recordatorios activos
+  ipcMain.handle(IPC_CHANNELS.REMINDER_GET_ALL, async () => {
+    try {
+      const reminders = await reminderService.getAllActiveReminders();
+      return reminders.map(r => ({
+        id: r.id,
+        taskId: r.taskId,
+        fireAt: r.fireAt,
+        advanceMinutes: r.advanceMinutes ?? 0,
+        advanceLabel: r.advanceLabel ?? 'A la hora del evento',
+        type: r.type,
+        dismissed: r.dismissed,
+        firedAt: r.firedAt,
+        snoozedUntil: r.snoozedUntil,
+        snoozeCount: r.snoozeCount,
+        task: r.task ? {
+          id: r.task.id,
+          title: r.task.title,
+          dueDate: r.task.dueDate,
+          type: r.task.type,
+          completedAt: r.task.completedAt,
+          project: r.task.project,
+        } : null,
+      }));
+    } catch (error) {
+      logger.error('REMINDER_GET_ALL error:', error);
+      throw error;
+    }
+  });
+
+  // Actualizar un recordatorio individual
+  ipcMain.handle(IPC_CHANNELS.REMINDER_UPDATE, async (_event, id: string, data: { fireAt?: string; advanceMinutes?: number; advanceLabel?: string }) => {
+    try {
+      const updateData: { fireAt?: Date; advanceMinutes?: number; advanceLabel?: string } = {};
+      if (data.fireAt) updateData.fireAt = new Date(data.fireAt);
+      if (data.advanceMinutes !== undefined) updateData.advanceMinutes = data.advanceMinutes;
+      if (data.advanceLabel) updateData.advanceLabel = data.advanceLabel;
+      
+      const reminder = await reminderService.updateReminder(id, updateData);
+      reschedule();
+      return {
+        id: reminder.id,
+        taskId: reminder.taskId,
+        fireAt: reminder.fireAt,
+        advanceMinutes: reminder.advanceMinutes ?? 0,
+        advanceLabel: reminder.advanceLabel ?? 'A la hora del evento',
+        type: reminder.type,
+      };
+    } catch (error) {
+      logger.error('REMINDER_UPDATE error:', error);
+      throw error;
+    }
+  });
+
+  // Eliminar un recordatorio individual
+  ipcMain.handle(IPC_CHANNELS.REMINDER_DELETE, async (_event, id: string) => {
+    try {
+      await reminderService.deleteReminder(id);
+      reschedule();
+      return { success: true };
+    } catch (error) {
+      logger.error('REMINDER_DELETE error:', error);
+      throw error;
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════════════
   // SETTINGS HANDLERS
   // ═══════════════════════════════════════════════════════════════════════

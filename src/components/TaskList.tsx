@@ -13,6 +13,7 @@ import SyncSettings from './SyncSettings';
 import AppSettings from './AppSettings';
 import CalendarView from './CalendarView';
 import StatsView from './StatsView';
+import RemindersView from './RemindersView';
 
 interface Task {
   id: string;
@@ -67,6 +68,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
   const [upcomingDays, setUpcomingDays] = useState<number>(7); // Rango de días para próximas (7 días por defecto)
 
   // Cargar proyectos
@@ -525,6 +527,15 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
             📅
           </button>
           
+          {/* Reminders Button */}
+          <button
+            onClick={() => setShowReminders(true)}
+            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+            title="Gestión de Recordatorios"
+          >
+            🔔
+          </button>
+          
           {/* Stats Button */}
           <button
             onClick={() => setShowStats(true)}
@@ -682,6 +693,26 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
       {/* Stats View */}
       {showStats && (
         <StatsView onClose={() => setShowStats(false)} />
+      )}
+
+      {/* Reminders View */}
+      {showReminders && (
+        <RemindersView 
+          onClose={() => setShowReminders(false)}
+          onEditTask={async (taskId) => {
+            setShowReminders(false);
+            try {
+              const api = (window as any).electronAPI;
+              const task = await api.getTask(taskId);
+              if (task) {
+                setEditingTask(task);
+                setIsModalOpen(true);
+              }
+            } catch (error) {
+              console.error('Error loading task for edit:', error);
+            }
+          }}
+        />
       )}
     </div>
     </div>

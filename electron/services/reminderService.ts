@@ -525,3 +525,99 @@ export async function getRemindersForTask(taskId: string) {
     orderBy: { fireAt: 'asc' },
   });
 }
+
+/**
+ * Obtiene TODOS los recordatorios activos (pendientes de disparar)
+ * Ordenados por fecha de disparo
+ */
+export async function getAllActiveReminders() {
+  const db = getDatabase();
+  
+  return db.reminder.findMany({
+    where: {
+      deletedAt: null,
+      dismissed: false,
+      // Solo recordatorios pendientes (no disparados o postpuestos)
+      OR: [
+        { firedAt: null },
+        { snoozedUntil: { not: null } },
+      ],
+    },
+    include: {
+      task: {
+        select: {
+          id: true,
+          title: true,
+          dueDate: true,
+          type: true,
+          completedAt: true,
+          project: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { fireAt: 'asc' },
+  });
+}
+
+/**
+ * Actualiza un recordatorio individual
+ */
+export async function updateReminder(
+  reminderId: string, 
+  data: { fireAt?: Date; advanceMinutes?: number; advanceLabel?: string }
+) {
+  const db = getDatabase();
+  
+  const updated = await db.reminder.update({
+    where: { id: reminderId },
+    data: {
+      ...data,
+      firedAt: null, // Reset para que pueda volver a disparar
+      lastNotifiedAt: null,
+      syncVersion: { increment: 1 },
+    },
+  });
+  
+  // Actualizar en la cola de notificaciones
+  if (data.fireAt) {
+    await db.nextNotification.upsert({
+      where: { reminderId },
+      create: { reminderId, nextFireAt: data.fireAt },
+      update: { nextFireAt: data.fireAt, lockedUntil: null },
+    });
+  }
+  
+  logger.info(`Reminder updated: ${reminderId}`);
+  return updated;
+}
+
+/**
+ * Elimina un recordatorio individual
+ */
+export async function deleteReminder(reminderId: string) {
+  const db = getDatabase();
+  
+  // Eliminar de la cola
+  await db.nextNotification.delete({
+    where: { reminderId },
+  }).catch(() => {
+    // Puede no existir en la cola
+  });
+  
+  // Soft delete del reminder
+  await db.reminder.update({
+    where: { id: reminderId },
+    data: {
+      deletedAt: new Date(),
+      syncVersion: { increment: 1 },
+    },
+  });
+  
+  logger.info(`Reminder deleted: ${reminderId}`);
+}
