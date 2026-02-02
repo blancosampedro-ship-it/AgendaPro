@@ -136,8 +136,6 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
     closable: true,
     show: false,
     hasShadow: true,
-    vibrancy: 'popover',
-    visualEffectState: 'active',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -150,11 +148,9 @@ function createOverdueWindow(tasks: OverdueTask[]): void {
 
   overdueWindow.once('ready-to-show', () => {
     if (overdueWindow) {
-      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
+      // Mostrar y enfocar - comportamiento normal de ventana
       overdueWindow.show();
       overdueWindow.focus();
-      // Elevar la ventana al frente una sola vez
-      overdueWindow.moveTop();
       logger.debug('Overdue popup: shown with normal window behavior');
     }
   });

@@ -62,11 +62,9 @@ export function showSnoozePopup(data: SnoozePopupData): void {
 
   snoozeWindow.once('ready-to-show', () => {
     if (snoozeWindow) {
-      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
+      // Mostrar y enfocar - comportamiento normal de ventana
       snoozeWindow.show();
       snoozeWindow.focus();
-      // Elevar la ventana al frente una sola vez
-      snoozeWindow.moveTop();
     }
   });
 

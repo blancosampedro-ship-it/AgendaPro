@@ -72,8 +72,6 @@ function createReminderWindow(data: ReminderPopupData): void {
     closable: true,
     show: false,
     hasShadow: true,
-    vibrancy: 'popover',
-    visualEffectState: 'active',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -86,12 +84,10 @@ function createReminderWindow(data: ReminderPopupData): void {
 
   reminderWindow.once('ready-to-show', () => {
     if (reminderWindow) {
-      // Mostrar y enfocar sin alwaysOnTop - comportamiento normal de ventana
+      // Mostrar y enfocar - comportamiento normal de ventana
       reminderWindow.show();
       reminderWindow.focus();
       shell.beep();
-      // Elevar la ventana al frente una sola vez
-      reminderWindow.moveTop();
       logger.debug('Reminder popup: shown with normal window behavior');
     }
   });
