@@ -370,6 +370,7 @@ const electronAPI = {
       'new-project',
       'navigate',
       'toggle-command-palette',
+      'reminders:open',
     ];
     
     if (validChannels.includes(channel)) {

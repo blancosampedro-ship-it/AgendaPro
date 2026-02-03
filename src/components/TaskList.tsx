@@ -182,17 +182,24 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
       setEditingProject(null);
       setShowProjectModal(true);
     };
+
+    const handleOpenReminders = () => {
+      console.log('TaskList: Received reminders:open event');
+      setShowReminders(true);
+    };
     
     api.on('tasks:refresh', handleRefresh);
     api.on('task:edit', handleEditTask);
     api.on('new-task', handleNewTask);
     api.on('new-project', handleNewProject);
+    api.on('reminders:open', handleOpenReminders);
     
     return () => {
       api.removeListener?.('tasks:refresh', handleRefresh);
       api.removeListener?.('task:edit', handleEditTask);
       api.removeListener?.('new-task', handleNewTask);
       api.removeListener?.('new-project', handleNewProject);
+      api.removeListener?.('reminders:open', handleOpenReminders);
     };
   }, [fetchTasks, fetchProjects]);
 
@@ -480,7 +487,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
       {/* Contenido principal */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header con búsqueda */}
-        <div className="flex items-center p-4 border-b border-gray-200 dark:border-gray-700 gap-3">
+        <div className="flex flex-wrap items-center p-4 border-b border-gray-200 dark:border-gray-700 gap-3">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white shrink-0">
             {selectedProjectId 
               ? projects.find(p => p.id === selectedProjectId)?.name || 'Proyecto'
@@ -488,7 +495,7 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
           </h1>
           
           {/* Búsqueda */}
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
             <input
               type="text"
               value={searchQuery}
@@ -505,60 +512,59 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
               </button>
             )}
           </div>
-          
-          {/* Spacer */}
-          <div className="flex-1" />
-          
-          {/* Refresh button */}
-          <button
-            onClick={() => { fetchProjects(); fetchTasks(); }}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-            title="Actualizar"
-          >
-            🔄
-          </button>
-          
-          {/* Calendar Button */}
-          <button
-            onClick={() => setShowCalendar(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-            title="Calendario"
-          >
-            📅
-          </button>
-          
-          {/* Reminders Button */}
-          <button
-            onClick={() => setShowReminders(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-            title="Gestión de Recordatorios"
-          >
-            🔔
-          </button>
-          
-          {/* Stats Button */}
-          <button
-            onClick={() => setShowStats(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-            title="Estadísticas"
-          >
-            📊
-          </button>
-          
-          {/* Sync Settings */}
-          <SyncSettings />
-          
-          {/* App Settings Button */}
-          <AppSettings />
-          
-          {/* BOTÓN NUEVA TAREA */}
-          <button
-            onClick={handleCreateNew}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors shrink-0"
-          >
-            <span className="text-lg">+</span>
-            <span>Nueva Tarea</span>
-          </button>
+
+          <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+            {/* Refresh button */}
+            <button
+              onClick={() => { fetchProjects(); fetchTasks(); }}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+              title="Actualizar"
+            >
+              🔄
+            </button>
+            
+            {/* Calendar Button */}
+            <button
+              onClick={() => setShowCalendar(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+              title="Calendario"
+            >
+              📅
+            </button>
+            
+            {/* Reminders Button */}
+            <button
+              onClick={() => setShowReminders(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+              title="Gestión de Recordatorios"
+            >
+              🔔
+            </button>
+            
+            {/* Stats Button */}
+            <button
+              onClick={() => setShowStats(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+              title="Estadísticas"
+            >
+              📊
+            </button>
+            
+            {/* Sync Settings */}
+            <SyncSettings />
+            
+            {/* App Settings Button */}
+            <AppSettings />
+            
+            {/* BOTÓN NUEVA TAREA */}
+            <button
+              onClick={handleCreateNew}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors shrink-0"
+            >
+              <span className="text-lg">+</span>
+              <span>Nueva Tarea</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter tabs */}
@@ -699,18 +705,23 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
       {showReminders && (
         <RemindersView 
           onClose={() => setShowReminders(false)}
-          onEditTask={async (taskId) => {
+          onEditTask={(taskId) => {
             setShowReminders(false);
-            try {
-              const api = (window as any).electronAPI;
-              const task = await api.getTask(taskId);
-              if (task) {
-                setEditingTask(task);
-                setIsModalOpen(true);
-              }
-            } catch (error) {
-              console.error('Error loading task for edit:', error);
+            const api = (window as any).electronAPI;
+            if (!api?.getTask) {
+              console.error('getTask API not available');
+              return;
             }
+            api.getTask(taskId)
+              .then((task: Task | null) => {
+                if (task) {
+                  setEditingTask(task);
+                  setIsModalOpen(true);
+                }
+              })
+              .catch((error: unknown) => {
+                console.error('Error loading task for edit:', error);
+              });
           }}
         />
       )}

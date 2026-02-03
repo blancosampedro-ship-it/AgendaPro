@@ -229,6 +229,15 @@ export function createAppMenu(): void {
         },
         { type: 'separator' },
         {
+          label: 'Recordatorios',
+          click: () => {
+            showMainWindow();
+            const win = getMainWindow();
+            win?.webContents.send('reminders:open');
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Proyectos',
           accelerator: 'CmdOrCtrl+P',
           click: () => {
