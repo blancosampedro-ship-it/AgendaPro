@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TaskItem } from './TaskItem';
 import { TaskModal } from './TaskModal';
 import { ProjectModal } from './ProjectModal';
@@ -63,6 +63,8 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const hasMountedRef = useRef(false);
+  const fetchIdRef = useRef(0); // Para descartar fetches obsoletos
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -83,9 +85,16 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
     }
   }, []);
 
-  const fetchTasks = useCallback(async () => {
-    try {
+  const fetchTasks = useCallback(async (isInitial = false) => {
+    // Solo mostrar spinner en la primera carga (cuando no hay tareas aún)
+    if (isInitial) {
       setLoading(true);
+    }
+
+    // ID único para este fetch, para descartar resultados obsoletos
+    const currentFetchId = ++fetchIdRef.current;
+
+    try {
       let fetchedTasks: Task[] = [];
 
       const api = (window as any).electronAPI;
@@ -122,6 +131,9 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
         }
       }
 
+      // Descartar resultado si ya se lanzó otro fetch más reciente
+      if (currentFetchId !== fetchIdRef.current) return;
+
       // Filtrar completados si no es el filtro
       if (filter === 'completed') {
         fetchedTasks = fetchedTasks.filter(t => t.completedAt);
@@ -129,19 +141,27 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
         fetchedTasks = fetchedTasks.filter(t => !t.completedAt);
       }
 
-      console.log('TaskList: setting tasks:', fetchedTasks.length, fetchedTasks);
       setTasks(fetchedTasks);
     } catch (error) {
       console.error('Error fetching tasks:', error);
     } finally {
-      setLoading(false);
+      if (currentFetchId === fetchIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [filter, selectedProjectId, searchQuery, upcomingDays]);
 
   // Carga inicial: fetch paralelo de tasks y projects
+  // Guard contra double-mount de React StrictMode
   useEffect(() => {
+    if (hasMountedRef.current) {
+      // Cambio de filtro/proyecto/búsqueda → refresh silencioso (sin spinner)
+      fetchTasks(false);
+      return;
+    }
+    hasMountedRef.current = true;
     const loadInitialData = async () => {
-      await Promise.all([fetchTasks(), fetchProjects()]);
+      await Promise.all([fetchTasks(true), fetchProjects()]);
     };
     loadInitialData();
   }, [fetchTasks, fetchProjects]);
@@ -604,11 +624,11 @@ export function TaskList({ initialFilter = 'all' }: TaskListProps) {
 
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {loading && tasks.length === 0 ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
-        ) : tasks.length === 0 ? (
+        ) : tasks.length === 0 && !loading ? (
           <div className="flex flex-col items-center justify-center h-32 text-gray-500">
             <span className="text-4xl mb-2">📝</span>
             <p>{searchQuery ? 'No se encontraron tareas' : 'No hay tareas'}</p>

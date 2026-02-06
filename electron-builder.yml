@@ -59,10 +59,19 @@ extraResources:
     to: prisma/
     filter:
       - "**/*"
+      - "!*.db"
+      - "!*.db-journal"
   - from: ".env"
     to: ".env"
   - from: ".env.local"
     to: ".env.local"
+
+# Copiar .prisma client al bundle (directorios con punto son ignorados por defecto)
+extraFiles:
+  - from: "node_modules/.prisma"
+    to: "node_modules/.prisma"
+    filter:
+      - "**/*"
 
 # macOS configuration
 mac:

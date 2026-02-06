@@ -26,6 +26,16 @@ import { isAuthenticated, getCurrentUser } from '../firebase/authService';
 let syncInProgress = false;
 
 /**
+ * Serializa objetos de Prisma para IPC
+ * Convierte los objetos a JSON plano para evitar problemas de serialización
+ * con propiedades especiales de Prisma (getters, symbols, etc.)
+ */
+function serialize<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  return JSON.parse(JSON.stringify(obj));
+}
+
+/**
  * Sincroniza con Firestore en background (no bloquea)
  */
 async function syncToFirestoreBackground(): Promise<void> {
@@ -116,7 +126,7 @@ export function setupIpcHandlers(): void {
       logger.debug(`TASK_GET_ALL: returned ${tasks.length} tasks from local DB`);
       // Sync en background (no bloquea)
       syncToFirestoreBackground();
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_ALL error:', error);
       throw error;
@@ -126,7 +136,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-today', async () => {
     try {
       const tasks = await taskService.getTodayTasks();
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_TODAY error:', error);
       throw error;
@@ -136,7 +146,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-overdue', async () => {
     try {
       const tasks = await taskService.getOverdueTasks();
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_OVERDUE error:', error);
       throw error;
@@ -146,7 +156,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-upcoming', async (_event, days?: number) => {
     try {
       const tasks = await taskService.getUpcomingTasks(days || 30);
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_UPCOMING error:', error);
       throw error;
@@ -156,7 +166,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-waiting', async () => {
     try {
       const tasks = await taskService.getWaitingTasks();
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_WAITING error:', error);
       throw error;
@@ -207,7 +217,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-by-id', async (_event, id) => {
     try {
       const task = await taskService.getTaskById(id);
-      return task;
+      return serialize(task);
     } catch (error) {
       logger.error('task:get-by-id error:', error);
       throw error;
@@ -502,7 +512,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:search', async (_event, query: string) => {
     try {
       const tasks = await taskService.searchTasks(query);
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_SEARCH error:', error);
       throw error;
@@ -512,7 +522,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('task:get-by-project', async (_event, projectId: string | null) => {
     try {
       const tasks = await taskService.getTasksByProject(projectId);
-      return tasks;
+      return serialize(tasks);
     } catch (error) {
       logger.error('TASK_GET_BY_PROJECT error:', error);
       throw error;
